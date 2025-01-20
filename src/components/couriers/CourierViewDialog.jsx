@@ -114,10 +114,10 @@ const CourierViewDialog = ({
               <DirectionsCarIcon sx={{ color: '#1a237e' }} />
               <Box>
                 <Typography variant="body1">
-                  {courier?.vehicle || '-'}
+                  Transport: {courier?.vehicle || '-'}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {courier?.vehicleNumber || '-'}
+                  Raqami: {courier?.vehicleNumber || '-'}
                 </Typography>
               </Box>
             </Box>
@@ -129,8 +129,8 @@ const CourierViewDialog = ({
                 Status:
               </Typography>
               <Chip
-                label={courier?.status === 'active' ? 'Faol' : 'Nofaol'}
-                color={courier?.status === 'active' ? 'success' : 'error'}
+                label={getStatusText(courier?.status)}
+                color={getStatusColor(courier?.status)}
                 size="small"
               />
             </Box>

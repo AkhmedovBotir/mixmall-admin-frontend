@@ -260,7 +260,7 @@ export default function Layout() {
       >
         <Toolbar sx={{ justifyContent: 'space-between' }}>
           <IconButton
-            color="inherit"
+            color="primary"
             aria-label="open drawer"
             edge="start"
             onClick={handleDrawerToggle}

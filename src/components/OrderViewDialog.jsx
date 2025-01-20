@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -28,6 +28,7 @@ import {
   AccessTime as AccessTimeIcon,
   LocalShipping as LocalShippingIcon,
 } from '@mui/icons-material';
+import OrderCourierDialog from './OrderCourierDialog';
 
 const OrderViewDialog = ({
   order,
@@ -36,14 +37,56 @@ const OrderViewDialog = ({
   getStatusText,
   getStatusColor,
   onUpdateStatus,
-  onOpenCourierDialog,
+  onAssignCourier
 }) => {
   if (!order) return null;
 
   const totalItems = order.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
 
+  const getAvailableStatuses = (currentStatus) => {
+    const allStatuses = [
+      { value: 'pending', label: 'Kutilmoqda' },
+      { value: 'processing', label: 'Jarayonda' },
+      { value: 'confirmed', label: 'Tasdiqlangan' },
+      { value: 'shipped', label: 'Yetkazilmoqda' },
+      { value: 'delivered', label: 'Yetkazildi' },
+      { value: 'cancelled', label: 'Bekor qilindi' }
+    ];
+
+    // Bekor qilingan buyurtmaning holatini o'zgartirib bo'lmaydi
+    if (currentStatus === 'cancelled') {
+      return [];
+    }
+
+    // Yetkazilgan buyurtmaning holatini o'zgartirib bo'lmaydi
+    if (currentStatus === 'delivered') {
+      return [];
+    }
+
+    // Joriy holatdan keyingi mumkin bo'lgan holatlar
+    const statusOrder = {
+      pending: ['processing', 'cancelled'],
+      processing: ['confirmed', 'cancelled'],
+      confirmed: ['shipped', 'cancelled'],
+      shipped: ['delivered', 'cancelled']
+    };
+
+    const availableStatuses = statusOrder[currentStatus] || [];
+    return allStatuses.filter(status => availableStatuses.includes(status.value));
+  };
+
+  const [courierDialogOpen, setCourierDialogOpen] = useState(false);
+
   return (
-    <Dialog open={open} onClose={onClose} maxWidth="md" fullWidth>
+    <Dialog 
+      open={open} 
+      onClose={onClose} 
+      maxWidth="md" 
+      fullWidth
+      PaperProps={{
+        elevation: 8
+      }}
+    >
       <DialogTitle sx={{ m: 0, p: 2, bgcolor: 'primary.main', color: 'white' }}>
         <Box display="flex" alignItems="center" justifyContent="space-between">
           <Typography variant="h6">
@@ -79,13 +122,13 @@ const OrderViewDialog = ({
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <PersonIcon fontSize="small" color="action" />
                 <Typography variant="body1">
-                  {order.user.firstName} {order.user.lastName}
+                  {order?.user?.firstName} {order?.user?.lastName}
                 </Typography>
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <PhoneIcon fontSize="small" color="action" />
                 <Typography variant="body2" color="text.secondary">
-                  Tel: {order.user.phoneNumber}
+                  Tel: {order?.user?.phoneNumber}
                 </Typography>
               </Box>
             </Box>
@@ -100,22 +143,22 @@ const OrderViewDialog = ({
               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                 <LocationIcon fontSize="small" color="action" sx={{ mt: 0.3 }} />
                 <Typography variant="body1">
-                  {order.address.address}
-                  {order.address.entrance && `, ${order.address.entrance}-kirish`}
-                  {order.address.floor && `, ${order.address.floor}-qavat`}
-                  {order.address.apartment && `, ${order.address.apartment}`}
+                  {order?.address?.address}
+                  {order?.address?.entrance && `, ${order?.address?.entrance}-kirish`}
+                  {order?.address?.floor && `, ${order?.address?.floor}-qavat`}
+                  {order?.address?.apartment && `, ${order?.address?.apartment}`}
                 </Typography>
               </Box>
 
-              {order.address.domofonCode && (
+              {order?.address?.domofonCode && (
                 <Typography variant="body2" color="text.secondary" sx={{ ml: 3 }}>
-                  Domofon: {order.address.domofonCode}
+                  Domofon: {order?.address?.domofonCode}
                 </Typography>
               )}
 
-              {order.address.courierComment && (
+              {order?.address?.courierComment && (
                 <Typography variant="body2" color="text.secondary" sx={{ ml: 3 }}>
-                  Izoh: {order.address.courierComment}
+                  Izoh: {order?.address?.courierComment}
                 </Typography>
               )}
             </Box>
@@ -144,8 +187,7 @@ const OrderViewDialog = ({
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <LocalShippingIcon fontSize="small" color="action" />
                     <Typography variant="body2" color="text.secondary">
-                      Transport: {order.courier.vehicle.name} 
-                      {order.courier.vehicle.number && ` - ${order.courier.vehicle.number}`}
+                      Transport: {order.courier.vehicle} ({order.courier.vehicleNumber})
                     </Typography>
                   </Box>
                 </>
@@ -154,11 +196,12 @@ const OrderViewDialog = ({
                   <Typography variant="body2" color="text.secondary" sx={{ mr: 2 }}>
                     Kuryer tayinlanmagan
                   </Typography>
-                  {order.status === 'confirmed' && (
+                  {order.status === 'processing' && (
                     <Button
-                      variant="outlined"
+                      variant="contained"
                       size="small"
-                      onClick={() => onOpenCourierDialog(order._id)}
+                      startIcon={<LocalShippingIcon />}
+                      onClick={() => setCourierDialogOpen(true)}
                     >
                       Kuryer tayinlash
                     </Button>
@@ -209,7 +252,9 @@ const OrderViewDialog = ({
                 <TableBody>
                   {order.items?.map((item, index) => (
                     <TableRow key={index}>
-                      <TableCell>{item.product.name}</TableCell>
+                      <TableCell>
+                        {item.product ? item.product.name : 'Mavjud emas'}
+                      </TableCell>
                       <TableCell align="right">
                         {item.price?.toLocaleString()} so'm
                       </TableCell>
@@ -236,6 +281,7 @@ const OrderViewDialog = ({
 
       <DialogActions sx={{ justifyContent: 'space-between', px: 2, pb: 2 }}>
         <Box sx={{ display: 'flex', gap: 1 }}>
+          {/* Yangi buyurtma - tasdiqlash yoki bekor qilish */}
           {order.status === 'pending' && (
             <>
               <Button
@@ -255,13 +301,36 @@ const OrderViewDialog = ({
             </>
           )}
 
-          {order.status === 'confirmed' && order.courier && (
+          {/* Tasdiqlangan - jarayonga o'tkazish */}
+          {order.status === 'confirmed' && (
             <Button
               variant="contained"
               color="primary"
               onClick={() => onUpdateStatus(order._id, 'processing')}
             >
-              Jo'natish
+              Jarayonga o'tkazish
+            </Button>
+          )}
+
+          {/* Jarayonda - kuryer tayinlash */}
+          {order.status === 'processing' && !order.courier && (
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={() => setCourierDialogOpen(true)}
+            >
+              Kuryer tayinlash
+            </Button>
+          )}
+
+          {/* Har qanday holatda bekor qilish mumkin */}
+          {['pending', 'processing', 'confirmed'].includes(order.status) && (
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={() => onUpdateStatus(order._id, 'cancelled')}
+            >
+              Bekor qilish
             </Button>
           )}
         </Box>
@@ -270,6 +339,17 @@ const OrderViewDialog = ({
           Yopish
         </Button>
       </DialogActions>
+
+      {/* Kuryer dialog */}
+      <OrderCourierDialog
+        open={courierDialogOpen}
+        onClose={() => setCourierDialogOpen(false)}
+        order={order}
+        onAssign={(courier) => {
+          onAssignCourier(order._id, courier);
+          setCourierDialogOpen(false);
+        }}
+      />
     </Dialog>
   );
 };

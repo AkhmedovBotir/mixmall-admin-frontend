@@ -86,24 +86,24 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [summaryData, ordersData, statsData] = await Promise.all([
-          getDashboardSummary(),
-          getRecentOrders(5),
-          getOrdersStats(7)
-        ]);
+        const response = await getDashboardSummary();
+        
+        console.log('Dashboard data:', response);
 
-        console.log('Dashboard data:', { summaryData, ordersData, statsData });
-
-        // Backend API {success: true, data: {...}} formatida qaytaradi
-        if (summaryData.success) {
-          setSummary(summaryData.data);
-        }
-        if (ordersData.success) {
-          setRecentOrders(ordersData.data.orders);
-        }
-        if (statsData.success) {
-          setOrderStats(statsData.data.stats);
-        }
+        // API dan kelgan ma'lumotlarni to'g'ridan-to'g'ri ishlatamiz
+        setSummary({
+          orders: response.orders,
+          products: response.products,
+          users: response.users,
+          couriers: response.couriers
+        });
+        
+        // ordersData va statsData uchun default qiymatlar
+        const defaultOrders = { orders: [] };
+        const defaultStats = { stats: [] };
+        
+        setRecentOrders((response.ordersData || defaultOrders).orders);
+        setOrderStats((response.statsData || defaultStats).stats);
       } catch (error) {
         console.error('Dashboard data error:', error);
         setError('Ma\'lumotlarni yuklashda xatolik yuz berdi');
@@ -264,7 +264,7 @@ export default function Dashboard() {
               <Table>
                 <TableHead>
                   <TableRow>
-                    <TableCell>ID</TableCell>
+                    <TableCell>Buyurtma ID</TableCell>
                     <TableCell>Sana</TableCell>
                     <TableCell>Mijoz</TableCell>
                     <TableCell>Kurier</TableCell>
@@ -275,24 +275,16 @@ export default function Dashboard() {
                 <TableBody>
                   {recentOrders.map((order) => (
                     <TableRow key={order._id}>
-                      <TableCell>{order._id.slice(-6)}</TableCell>
+                      <TableCell>{order.orderId}</TableCell>
                       <TableCell>
                         {format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}
                       </TableCell>
                       <TableCell>
                         {`${order.user.firstName} ${order.user.lastName}`}
-                        <Typography variant="caption" display="block" color="textSecondary">
-                          {order.user.phone}
-                        </Typography>
                       </TableCell>
                       <TableCell>
                         {order.courier ? (
-                          <>
-                            {`${order.courier.firstName} ${order.courier.lastName}`}
-                            <Typography variant="caption" display="block" color="textSecondary">
-                              {order.courier.phone}
-                            </Typography>
-                          </>
+                          `${order.courier.firstName} ${order.courier.lastName}`
                         ) : (
                           'Tayinlanmagan'
                         )}
@@ -304,6 +296,7 @@ export default function Dashboard() {
                             color: {
                               pending: theme.palette.warning.main,
                               processing: theme.palette.info.main,
+                              shipped: theme.palette.info.main,
                               delivered: theme.palette.success.main,
                               cancelled: theme.palette.error.main,
                             }[order.status],
@@ -313,6 +306,7 @@ export default function Dashboard() {
                             {
                               pending: 'Kutilmoqda',
                               processing: 'Jarayonda',
+                              shipped: 'Yetkazilmoqda',
                               delivered: 'Yetkazildi',
                               cancelled: 'Bekor qilindi',
                             }[order.status]
@@ -320,7 +314,7 @@ export default function Dashboard() {
                         </Typography>
                       </TableCell>
                       <TableCell align="right">
-                        {order.total.toLocaleString()} UZS
+                        {order.totalPrice.toLocaleString()} UZS
                       </TableCell>
                     </TableRow>
                   ))}

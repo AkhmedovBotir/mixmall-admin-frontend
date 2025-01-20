@@ -11,9 +11,9 @@ import {
   CircularProgress
 } from '@mui/material';
 import { Add as AddIcon } from '@mui/icons-material';
-import { api } from '../utils/api';
+import api from '../utils/api';
 import { useSnackbar } from '../hooks/useSnackbar';
-import { socket } from '../utils/socket';
+import { socket } from '../socket';
 import CategoryList from '../components/categories/CategoryList';
 import CategoryFormDialog from '../components/categories/CategoryFormDialog';
 
@@ -43,20 +43,27 @@ const Categories = () => {
   const fetchCategories = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/categories');
+      const response = await api.get('/categories', {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
       
       console.log('Fetched categories:', response);
       
-      // Response tekshirish
-      if (!response || response.status !== 'success') {
-        throw new Error(response?.message || 'Kategoriyalarni yuklashda xatolik');
+      if (response && Array.isArray(response.data)) {
+        setCategories(response.data);
+      } else {
+        console.error('Kutilmagan server javobi:', response);
+        showSnackbar('Kategoriyalarni yuklashda xatolik', 'error');
+        setCategories([]);
       }
-
-      setCategories(response.data || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
       showSnackbar(
-        error.response?.data?.message || 'Kategoriyalarni yuklashda xatolik',
+        error.message || 'Kategoriyalarni yuklashda xatolik',
         'error'
       );
       setCategories([]);
@@ -97,39 +104,27 @@ const Categories = () => {
 
     try {
       setLoading(true);
-      const response = await api.delete(`/categories/${categoryToDelete._id}`);
-
-      console.log('Delete response:', response);
-
-      // Response tekshirish
-      if (!response || response.status !== 'success') {
-        throw new Error(response?.message || 'Kategoriyani o\'chirishda xatolik');
-      }
-
-      // Socket event yuborish
-      socket.emit('categoryUpdate', {
-        type: 'CATEGORY_DELETED',
-        categoryId: categoryToDelete._id
+      const response = await api.delete(`/categories/${categoryToDelete._id}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
       });
 
-      showSnackbar('Kategoriya muvaffaqiyatli o\'chirildi', 'success');
-      handleCloseDeleteDialog();
-      fetchCategories();
-
+      if (response && response.success) {
+        showSnackbar('Kategoriya muvaffaqiyatli o\'chirildi', 'success');
+        handleCloseDeleteDialog();
+        fetchCategories();
+      } else {
+        throw new Error(response?.message || 'Kategoriyani o\'chirishda xatolik');
+      }
     } catch (error) {
       console.error('Error deleting category:', error);
-      
-      let errorMessage = 'Kategoriyani o\'chirishda xatolik';
-      
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      showSnackbar(errorMessage, 'error');
+      showSnackbar(
+        error.message || 'Kategoriyani o\'chirishda xatolik',
+        'error'
+      );
     } finally {
       setLoading(false);
     }
@@ -179,6 +174,7 @@ const Categories = () => {
         url: formMode === 'add' ? '/categories' : `/categories/${formData._id}`,
         data: formDataToSend,
         headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'multipart/form-data'
         }
       });

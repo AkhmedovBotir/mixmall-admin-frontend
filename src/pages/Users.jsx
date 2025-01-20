@@ -41,7 +41,7 @@ import {
   Refresh as RefreshIcon,
   Add as AddIcon
 } from "@mui/icons-material"
-import api from "../api/axios"
+import axios from "axios"
 
 const API_URL = "https://adderapi.mixmall.uz/api"
 
@@ -103,16 +103,26 @@ export default function Users() {
   const fetchUsers = async () => {
     try {
       setLoading(true)
-      const response = await api.get(`${API_URL}/users`)
-      if (response.data.success) {
-        setUsers(response.data.data.users)
-      } else {
-        console.error('Invalid response format:', response.data)
-        setUsers([])
-      }
+      const response = await axios.get('/api/users', {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      })
+      
+      // Server javobini to'g'ridan-to'g'ri olish
+      setUsers(response.data)
+      
     } catch (error) {
-      console.error("Error fetching users:", error)
-      setUsers([])
+      console.error('Error fetching users:', error)
+      setSnackbar({
+        open: true,
+        message: error.message || 'Foydalanuvchilar ma\'lumotlarini olishda xatolik yuz berdi',
+        severity: "error"
+      })
+      setUsers([]) // Xatolik bo'lganda bo'sh ro'yxat ko'rsatish
     } finally {
       setLoading(false)
     }
@@ -141,32 +151,63 @@ export default function Users() {
     setSelectedUser(null)
   }
 
-  const handleDeleteUser = async userId => {
+  const handleDeleteUser = async (userId) => {
     try {
-      const response = await api.delete(`${API_URL}/users/${userId}`)
+      const response = await axios.delete(`/api/users/${userId}`, {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
       if (response.data.success) {
         setSnackbar({
           open: true,
-          message: "Foydalanuvchi o'chirildi",
-          severity: "success"
-        })
-        fetchUsers()
-      } else {
-        setSnackbar({
-          open: true,
-          message: "Foydalanuvchini o'chirishda xatolik",
-          severity: "error"
-        })
+          message: 'Foydalanuvchi muvaffaqiyatli o\'chirildi',
+          severity: 'success'
+        });
+        fetchUsers(); // Ro'yxatni yangilash
       }
     } catch (error) {
-      console.error("Error deleting user:", error)
+      console.error('Error deleting user:', error);
       setSnackbar({
         open: true,
-        message: "Foydalanuvchini o'chirishda xatolik",
-        severity: "error"
-      })
+        message: error.message || 'Foydalanuvchini o\'chirishda xatolik yuz berdi',
+        severity: 'error'
+      });
     }
-  }
+  };
+
+  const handleUpdateUser = async (userData) => {
+    try {
+      const response = await axios.put(`/api/users/${userData._id}`, userData, {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+
+      if (response.data.success) {
+        setSnackbar({
+          open: true,
+          message: 'Foydalanuvchi ma\'lumotlari muvaffaqiyatli yangilandi',
+          severity: 'success'
+        });
+        fetchUsers(); // Ro'yxatni yangilash
+      }
+    } catch (error) {
+      console.error('Error updating user:', error);
+      setSnackbar({
+        open: true,
+        message: error.message || 'Foydalanuvchi ma\'lumotlarini yangilashda xatolik yuz berdi',
+        severity: 'error'
+      });
+    }
+  };
 
   const handleEditClick = user => {
     setEditFormData({
@@ -298,7 +339,7 @@ export default function Users() {
         updateData.newPassword = editFormData.newPassword
       }
 
-      await api.put(`${API_URL}/users/${selectedUser._id}`, updateData)
+      await handleUpdateUser({ ...selectedUser, ...updateData })
 
       setSnackbar({
         open: true,
@@ -320,7 +361,7 @@ export default function Users() {
     }
   }
 
-  const filteredUsers = users.filter(
+  const filteredUsers = users?.filter(
     user =>
       (user?.firstName?.toLowerCase() || "").includes(
         searchQuery.toLowerCase()
@@ -329,7 +370,7 @@ export default function Users() {
         searchQuery.toLowerCase()
       ) ||
       (user?.phoneNumber || "").includes(searchQuery)
-  )
+  ) || []
 
   return (
     <Box sx={{ width: "100%", p: 3 }}>

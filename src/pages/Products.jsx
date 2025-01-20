@@ -193,7 +193,7 @@ export default function Products() {
         throw new Error('Mahsulot ID si topilmadi');
       }
 
-      // O'chirish so'rovini yuborish
+      // O'chirish so'rovi
       const response = await api.delete(`/products/${productToDelete._id}`);
 
       // Debug log

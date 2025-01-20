@@ -63,9 +63,15 @@ export default function Login() {
     }
 
     try {
-      const response = await axios.post('https://adderapi.mixmall.uz/api/admins/login', {
+      const response = await axios.post('/api/admins/login', {
         email: email.toLowerCase(),
         password
+      }, {
+        withCredentials: true,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
       });
 
       const { success, data, message } = response.data;

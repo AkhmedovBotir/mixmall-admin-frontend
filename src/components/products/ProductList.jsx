@@ -66,7 +66,15 @@ const ProductList = () => {
         inStock: filters.inStock === 'true' ? true : undefined
       };
 
-      const response = await axios.get('https://adderapi.mixmall.uz/api/products', { params });
+      const response = await axios.get('/api/products', {
+        params,
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
       
       if (response.data?.data?.products && Array.isArray(response.data.data.products)) {
         setProducts(response.data.data.products);
@@ -112,41 +120,24 @@ const ProductList = () => {
 
   const handleDelete = async () => {
     try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`https://adderapi.mixmall.uz/api/products/${productToDelete._id}`, {
+      setLoading(true);
+      
+      await axios.delete(`/api/products/${productToDelete._id}`, {
+        withCredentials: true,
         headers: {
-          Authorization: `Bearer ${token}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
         }
       });
 
-      // O'chirilgan mahsulotni ro'yxatdan olib tashlash
-      setProducts(products.filter(p => p._id !== productToDelete._id));
       setDeleteDialogOpen(false);
-      setProductToDelete(null);
-      
-      // Muvaffaqiyatli xabar ko'rsatish
-      // enqueueSnackbar('Mahsulot muvaffaqiyatli o'chirildi', { variant: 'success' });
+      fetchProducts();
     } catch (error) {
-      console.error('Delete error:', error);
-      let errorMessage = 'Mahsulotni o\'chirishda xatolik yuz berdi';
-      
-      if (error.response) {
-        switch (error.response.status) {
-          case 401:
-            errorMessage = 'Avtorizatsiyadan o\'tilmagan';
-            break;
-          case 403:
-            errorMessage = 'Bu amalni bajarish uchun ruxsat yo\'q';
-            break;
-          case 404:
-            errorMessage = 'Mahsulot topilmadi';
-            break;
-          default:
-            errorMessage = error.response.data.message || errorMessage;
-        }
-      }
-      
-      // enqueueSnackbar(errorMessage, { variant: 'error' });
+      console.error('Mahsulotni o\'chirishda xatolik:', error);
+      setError('Mahsulotni o\'chirishda xatolik yuz berdi');
+    } finally {
+      setLoading(false);
     }
   };
 

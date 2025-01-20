@@ -57,12 +57,20 @@ const ProductFormDialog = ({ open, onClose, product }) => {
         brand: product.brand?._id || product.brand || '',
       });
       setDescription(product.description || '');
-      setSelectedCategories(product.categories?.map(cat => cat._id || cat) || []);
-      setExistingImages(product.images || []);
       
+      // Kategoriyalarni o'rnatish
+      const categoryIds = product.categories?.map(cat => cat._id || cat) || [];
+      setSelectedCategories(categoryIds);
+      
+      // Subkategoriyalarni o'rnatish
       if (product.subcategories?.length) {
         const subIds = product.subcategories.map(sub => sub._id || sub);
         setSelectedSubcategories(subIds);
+      }
+
+      // Mavjud rasmlarni o'rnatish
+      if (product.images?.length) {
+        setExistingImages(product.images);
       }
     }
   }, [product]);
@@ -70,29 +78,36 @@ const ProductFormDialog = ({ open, onClose, product }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem('token');
-        const headers = {
-          Authorization: `Bearer ${token}`
-        };
-
         const [brandsRes, categoriesRes] = await Promise.all([
-          axios.get('https://adderapi.mixmall.uz/api/brands', { headers }),
-          axios.get('https://adderapi.mixmall.uz/api/categories', { headers })
+          axios.get('/api/brands', {
+            withCredentials: true,
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          }),
+          axios.get('/api/categories', {
+            withCredentials: true,
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/json'
+            }
+          })
         ]);
 
-        if (brandsRes.data.status === 'success') {
-          setBrands(brandsRes.data.data || []);
+        if (brandsRes.data.data) {
+          setBrands(brandsRes.data.data);
         }
 
-        if (categoriesRes.data.status === 'success') {
-          const cats = categoriesRes.data.data || [];
+        if (categoriesRes.data.data) {
+          const cats = categoriesRes.data.data;
           setCategories(cats);
           
-          // Agar product mavjud bo'lsa va kategoriyalari bo'lsa
-          if (product?.categories?.length) {
-            const selectedCats = cats.filter(cat => 
-              product.categories.some(pc => (pc._id || pc) === cat._id)
-            );
+          // Agar tanlangan kategoriyalar bo'lsa, ularning subkategoriyalarini o'rnatish
+          if (selectedCategories.length > 0) {
+            const selectedCats = cats.filter(cat => selectedCategories.includes(cat._id));
             const allSubcategories = selectedCats.reduce((acc, cat) => {
               return [...acc, ...(cat.subcategories || [])];
             }, []);
@@ -118,7 +133,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
     };
 
     fetchData();
-  }, [product]);
+  }, [selectedCategories]); // selectedCategories o'zgarganda qayta yuklash
 
   useEffect(() => {
     // Chegirma narxini hisoblash
@@ -157,11 +172,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
       return [...acc, ...(cat.subcategories || [])];
     }, []);
 
-    // Dublikatlarni olib tashlash
-    const uniqueSubcategories = Array.from(new Set(allSubcategories.map(sub => sub._id)))
-      .map(id => allSubcategories.find(sub => sub._id === id));
-
-    setSubcategories(uniqueSubcategories);
+    setSubcategories(allSubcategories);
   };
 
   const handleFileSelect = (e) => {
@@ -258,44 +269,49 @@ const ProductFormDialog = ({ open, onClose, product }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    
+    if (!validateForm()) {
+      return;
+    }
+    
     setLoading(true);
     
     try {
+      // Ma'lumotlarni tekshirish
+      console.log('Selected Categories:', selectedCategories);
+      console.log('Selected Subcategories:', selectedSubcategories);
+      console.log('Available Subcategories:', subcategories);
+
       const formDataToSend = new FormData();
       
       // Asosiy ma'lumotlar
       formDataToSend.append('name', formData.name);
       formDataToSend.append('description', description);
-      formDataToSend.append('price', Number(formData.price));
-      formDataToSend.append('stock', Number(formData.stock));
-      formDataToSend.append('discount_percent', Number(formData.discount_percent || 0));
+      formDataToSend.append('price', formData.price);
+      formDataToSend.append('stock', formData.stock);
+      formDataToSend.append('discount_percent', formData.discount_percent || 0);
       formDataToSend.append('brand', formData.brand);
       
-      // Kategoriya va subkategoriyalar
-      selectedCategories.forEach(catId => {
-        formDataToSend.append('categories[]', catId);
+      // Kategoriyalar
+      formDataToSend.append('categories', JSON.stringify(selectedCategories));
+      
+      // Subkategoriyalar - faqat mavjud subkategoriyalarni yuborish
+      const validSubcategories = selectedSubcategories.filter(subId => 
+        subcategories.some(sub => sub._id === subId)
+      ).map(subId => {
+        const subcat = subcategories.find(sub => sub._id === subId);
+        return {
+          _id: subcat._id,
+          name: subcat.name,
+          category: subcat.category
+        };
       });
       
-      // Subkategoriyalar obyekt ko'rinishida yuboriladi
-      const subcategoriesData = selectedSubcategories.map(subId => {
-        const subcategory = subcategories.find(sub => sub._id === subId);
-        if (!subcategory) return null;
-        return {
-          _id: subcategory._id,
-          name: subcategory.name,
-          status: subcategory.status
-        };
-      }).filter(Boolean);
-
-      // Debug: Subkategoriyalar ma'lumotini ko'rish
-      console.log('Subcategories data:', subcategoriesData);
-      
-      formDataToSend.append('subcategories', JSON.stringify(subcategoriesData));
-
-      // Debug: FormData tarkibini ko'rish
-      for (let [key, value] of formDataToSend.entries()) {
-        console.log(`${key}: ${value}`);
+      if (validSubcategories.length === 0) {
+        throw new Error('Kamida bitta subkategoriya tanlash kerak');
       }
+
+      formDataToSend.append('subcategories', JSON.stringify(validSubcategories));
 
       // Yangi rasmlar
       if (selectedFiles.length > 0) {
@@ -309,38 +325,51 @@ const ProductFormDialog = ({ open, onClose, product }) => {
         formDataToSend.append('deleteImages', JSON.stringify(imagesToDelete));
       }
 
-      const token = localStorage.getItem('token');
-      const url = product 
-        ? `https://adderapi.mixmall.uz/api/products/${product._id}`
-        : 'https://adderapi.mixmall.uz/api/products';
+      console.log('Sending data:', {
+        name: formData.name,
+        description,
+        price: formData.price,
+        stock: formData.stock,
+        discount_percent: formData.discount_percent,
+        brand: formData.brand,
+        categories: selectedCategories,
+        subcategories: validSubcategories,
+        newImages: selectedFiles.length,
+        deleteImages: imagesToDelete
+      });
       
+      const url = product ? `/api/products/${product._id}` : '/api/products';
       const method = product ? 'put' : 'post';
       
       const response = await axios({
         method,
         url,
         data: formDataToSend,
+        withCredentials: true,
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'multipart/form-data'
         }
       });
 
-      // Debug: API javobini ko'rish
-      console.log('API response:', response.data);
+      console.log('Server response:', response);
 
-      if (response.data.status === 'success') {
+      // Server javobini to'liq tekshirish
+      if (response.status === 200 && response.data && response.data.status === 'success') {
         onClose();
         window.location.reload();
       } else {
-        throw new Error(response.data.message || 'Xatolik yuz berdi');
+        const errorMessage = response.data?.message || 'Xatolik yuz berdi';
+        console.error('Server error:', errorMessage);
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error('Submit error:', error);
-      console.log('Error response:', error.response?.data);
+      if (error.response?.data) {
+        console.error('Error response data:', error.response.data);
+      }
       
-      let errorMessage = 'Xatolik yuz berdi';
-      
+      let errorMessage = error.message;
       if (error.response?.data?.message) {
         errorMessage = error.response.data.message;
       }
@@ -514,7 +543,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
                       {brand.logo && (
                         <Box
                           component="img"
-                          src={`https://adderapi.mixmall.uz${brand.logo}`}
+                          src={brand.logo.startsWith('http') ? brand.logo : `https://adderapi.mixmall.uz${brand.logo}`}
                           alt={brand.name}
                           sx={{ width: 24, height: 24, objectFit: 'contain' }}
                         />
@@ -525,7 +554,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
                 ))}
               </Select>
               {errors.brand && (
-                <FormHelperText error={errors.brand ? "true" : undefined}>
+                <FormHelperText error>
                   {errors.brand}
                 </FormHelperText>
               )}
@@ -537,7 +566,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
               <InputLabel>Kategoriyalar</InputLabel>
               <Select
                 multiple
-                value={selectedCategories || []}
+                value={selectedCategories}
                 onChange={handleCategoryChange}
                 label="Kategoriyalar"
                 renderValue={(selected) => (
@@ -558,7 +587,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
                       {category.image && (
                         <Box
                           component="img"
-                          src={`https://adderapi.mixmall.uz${category.image}`}
+                          src={category.image.startsWith('http') ? category.image : `https://adderapi.mixmall.uz${category.image}`}
                           alt={category.name}
                           sx={{ width: 24, height: 24, objectFit: 'contain' }}
                         />
@@ -569,7 +598,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
                 ))}
               </Select>
               {errors.categories && (
-                <FormHelperText error={errors.categories ? "true" : undefined}>
+                <FormHelperText error>
                   {errors.categories}
                 </FormHelperText>
               )}
@@ -582,40 +611,39 @@ const ProductFormDialog = ({ open, onClose, product }) => {
                 <InputLabel>Subkategoriyalar</InputLabel>
                 <Select
                   multiple
-                  value={selectedSubcategories || []}
+                  value={selectedSubcategories}
                   onChange={(e) => setSelectedSubcategories(e.target.value)}
                   label="Subkategoriyalar"
                   renderValue={(selected) => (
                     <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => (
-                        <Chip
-                          key={value}
-                          label={subcategories.find(sub => sub._id === value)?.name}
-                          size="small"
-                        />
-                      ))}
+                      {selected.map((value) => {
+                        const subcat = subcategories.find(sub => sub._id === value);
+                        return (
+                          <Chip
+                            key={value}
+                            label={subcat?.name || value}
+                            size="small"
+                          />
+                        );
+                      })}
                     </Box>
                   )}
+                  disabled={selectedCategories.length === 0}
                 >
                   {subcategories.map((subcategory) => (
                     <MenuItem key={subcategory._id} value={subcategory._id}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {subcategory.image && (
-                          <Box
-                            component="img"
-                            src={`https://adderapi.mixmall.uz${subcategory.image}`}
-                            alt={subcategory.name}
-                            sx={{ width: 24, height: 24, objectFit: 'contain' }}
-                          />
-                        )}
-                        {subcategory.name}
-                      </Box>
+                      {subcategory.name}
                     </MenuItem>
                   ))}
                 </Select>
                 {errors.subcategories && (
-                  <FormHelperText error={errors.subcategories ? "true" : undefined}>
+                  <FormHelperText error>
                     {errors.subcategories}
+                  </FormHelperText>
+                )}
+                {selectedCategories.length === 0 && (
+                  <FormHelperText>
+                    Avval kategoriya tanlang
                   </FormHelperText>
                 )}
               </FormControl>
@@ -669,7 +697,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
                         }}
                       >
                         <img
-                          src={`https://adderapi.mixmall.uz${image}`}
+                          src={image.startsWith('http') ? image : `https://adderapi.mixmall.uz${image}`}
                           alt={`Image ${index + 1}`}
                           style={{
                             width: '100%',

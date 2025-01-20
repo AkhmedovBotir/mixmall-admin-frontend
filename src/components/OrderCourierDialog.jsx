@@ -14,7 +14,7 @@ import {
   CircularProgress,
   Alert,
 } from '@mui/material';
-import axios from 'axios';
+import api from '../utils/api';
 
 const OrderCourierDialog = ({
   open,
@@ -23,7 +23,7 @@ const OrderCourierDialog = ({
   order,
 }) => {
   const [couriers, setCouriers] = useState([]);
-  const [selectedCourier, setSelectedCourier] = useState('');
+  const [selectedCourierId, setSelectedCourierId] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
@@ -33,58 +33,17 @@ const OrderCourierDialog = ({
     }
   }, [open]);
 
-  // Token funksiyalari
-  const getTokenData = () => {
-    const token = localStorage.getItem('token');
-    if (!token) return null;
-    
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
-      
-      return JSON.parse(jsonPayload);
-    } catch (error) {
-      console.error('Token ma\'lumotlarini o\'qishda xatolik:', error);
-      return null;
-    }
-  };
-
-  const checkPermissions = () => {
-    const tokenData = getTokenData();
-    if (!tokenData) return false;
-
-    return tokenData.can_manage_orders && tokenData.can_manage_couriers;
-  };
-
   const fetchCouriers = async () => {
     try {
       setLoading(true);
       setError(null);
-      
-      if (!checkPermissions()) {
-        setError('Buyurtmalarni va kuryerlarni boshqarish uchun huquqlar yetarli emas');
-        return;
-      }
 
-      const token = localStorage.getItem('token');
-      if (!token) {
-        setError('Avtorizatsiyadan o\'tilmagan');
-        return;
-      }
-
-      const response = await axios.get('https://api.example.com/couriers', {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await api.get('/couriers');
+      console.log('Kuryerlar response:', response);
       
-      if (Array.isArray(response.data)) {
+      if (response?.data?.couriers && Array.isArray(response.data.couriers)) {
         // Faqat faol kuryerlarni olish
-        const activeCouriers = response.data.filter((courier) => 
+        const activeCouriers = response.data.couriers.filter((courier) => 
           courier && courier.status === 'active'
         );
         
@@ -98,7 +57,7 @@ const OrderCourierDialog = ({
       }
     } catch (error) {
       console.error('Kuryerlarni yuklashda xatolik:', error);
-      const errorMessage = error.response?.data?.message || 'Kuryerlarni yuklashda xatolik yuz berdi';
+      const errorMessage = error.response?.data?.message || error.message || 'Kuryerlarni yuklashda xatolik yuz berdi';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -106,31 +65,47 @@ const OrderCourierDialog = ({
   };
 
   const handleAssign = () => {
-    if (!order || !selectedCourier) {
+    if (!selectedCourierId) {
       setError('Kuryer tanlanmagan');
       return;
     }
-    onAssign(order._id, selectedCourier);
-    setSelectedCourier('');
+    const courier = couriers.find(c => c._id === selectedCourierId);
+    if (!courier) {
+      setError('Kuryer topilmadi');
+      return;
+    }
+    onAssign(courier);
+    setSelectedCourierId('');
   };
 
   const handleClose = () => {
-    setSelectedCourier('');
+    setSelectedCourierId('');
     setError(null);
     onClose();
   };
 
   return (
-    <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
+    <Dialog 
+      open={open} 
+      onClose={handleClose} 
+      maxWidth="sm" 
+      fullWidth
+      PaperProps={{
+        elevation: 8,
+        sx: { borderRadius: 2 }
+      }}
+    >
       <DialogTitle>
-        <Typography variant="h6">
-          Kuryer tayinlash
+        <Box>
+          <Typography variant="h6">
+            Kuryer tayinlash
+          </Typography>
           {order && (
-            <Typography variant="subtitle2" color="textSecondary">
+            <Typography variant="body2" color="textSecondary">
               Buyurtma #{order.orderId}
             </Typography>
           )}
-        </Typography>
+        </Box>
       </DialogTitle>
 
       <DialogContent>
@@ -150,13 +125,13 @@ const OrderCourierDialog = ({
           <FormControl fullWidth sx={{ mt: 2 }}>
             <InputLabel>Kuryer</InputLabel>
             <Select
-              value={selectedCourier}
-              onChange={(e) => setSelectedCourier(e.target.value)}
+              value={selectedCourierId}
+              onChange={(e) => setSelectedCourierId(e.target.value)}
               label="Kuryer"
             >
               {couriers.map((courier) => (
                 <MenuItem key={courier._id} value={courier._id}>
-                  {courier.firstName} {courier.lastName} ({courier.vehicle.name} - {courier.vehicle.number})
+                  {courier.firstName} {courier.lastName} ({courier.vehicle} - {courier.vehicleNumber})
                 </MenuItem>
               ))}
             </Select>
@@ -171,7 +146,7 @@ const OrderCourierDialog = ({
         <Button
           onClick={handleAssign}
           variant="contained"
-          disabled={!selectedCourier || loading}
+          disabled={!selectedCourierId || loading}
         >
           Tayinlash
         </Button>

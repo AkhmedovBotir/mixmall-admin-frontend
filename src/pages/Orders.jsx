@@ -1,293 +1,314 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Box,
-  Typography,
-  Stack,
-  Button,
-  CircularProgress,
-  Chip,
+  Container,
   Paper,
-  Grid,
-  LinearProgress,
+  Typography,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  IconButton,
+  Stack,
+  Chip,
+  Box,
+  CircularProgress,
   Alert,
+  Pagination,
   Snackbar,
-  Divider,
 } from '@mui/material';
 import {
-  Refresh as RefreshIcon,
+  Visibility as ViewIcon,
 } from '@mui/icons-material';
-import api from '../api/axios';
-
-// Komponentlarni import qilish
+import axios from 'axios';
 import OrderViewDialog from '../components/OrderViewDialog';
 import OrderCourierDialog from '../components/OrderCourierDialog';
-import OrderList from '../components/OrderList';
+import { format } from 'date-fns';
 
-export default function Orders() {
-  // State'lar
+const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [openViewDialog, setOpenViewDialog] = useState(false);
-  const [openCourierDialog, setOpenCourierDialog] = useState(false);
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success'
-  });
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [courierDialogOpen, setCourierDialogOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  // API funksiyalari
-  const fetchOrders = async () => {
+  // Snackbar yopish
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
+
+  // Buyurtmalarni yuklash
+  const fetchOrders = async (pageNum = 1) => {
     try {
       setLoading(true);
-      const response = await api.get('/orders');
-      
-      if (response.data.success) {
+      const response = await axios.get(`/api/orders?page=${pageNum}&limit=10`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.data.status === 'success') {
         setOrders(response.data.data.orders);
+        setTotalPages(response.data.data.pagination.pages);
       } else {
-        console.error('Noto\'g\'ri ma\'lumot formati:', response.data);
-        showSnackbar('Ma\'lumotlarni yuklashda xatolik yuz berdi', 'error');
+        throw new Error(response.data.message || 'Xatolik yuz berdi');
       }
-    } catch (error) {
-      console.error('Buyurtmalarni yuklashda xatolik:', error);
-      showSnackbar(error.response?.data?.message || 'Buyurtmalarni yuklashda xatolik yuz berdi', 'error');
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const updateOrderStatus = async (orderId, status) => {
-    try {
-      const response = await api.put(`/orders/${orderId}/status`, { status });
-      
-      if (response.data.success) {
-        showSnackbar('Buyurtma holati yangilandi', 'success');
-        fetchOrders();
-      } else {
-        showSnackbar('Buyurtma holatini yangilashda xatolik yuz berdi', 'error');
-      }
-    } catch (error) {
-      console.error('Buyurtma holatini yangilashda xatolik:', error);
-      showSnackbar(error.response?.data?.message || 'Buyurtma holatini yangilashda xatolik yuz berdi', 'error');
-    }
-  };
-
-  const assignCourierToOrder = async (orderId, courierId) => {
-    try {
-      const response = await api.put(`/orders/${orderId}/courier`, { courierId });
-      
-      if (response.data.success) {
-        showSnackbar('Kuryer buyurtmaga biriktirildi', 'success');
-        fetchOrders();
-      } else {
-        showSnackbar('Kuryerni buyurtmaga biriktirishda xatolik yuz berdi', 'error');
-      }
-    } catch (error) {
-      console.error('Kuryerni buyurtmaga biriktirishda xatolik:', error);
-      showSnackbar(error.response?.data?.message || 'Kuryerni buyurtmaga biriktirishda xatolik yuz berdi', 'error');
-    }
-  };
-
-  // Token funksiyalari
-  const getTokenData = () => {
-    const token = localStorage.getItem('token');
-    if (!token) return null;
-    
-    try {
-      const base64Url = token.split('.')[1];
-      const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-      const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-      }).join(''));
-      
-      return JSON.parse(jsonPayload);
-    } catch (error) {
-      console.error('Token ma\'lumotlarini o\'qishda xatolik:', error);
-      return null;
-    }
-  };
-
-  const checkPermissions = () => {
-    const tokenData = getTokenData();
-    if (!tokenData) return false;
-
-    return tokenData.can_manage_orders && tokenData.can_manage_couriers;
-  };
-
-  // Handler funksiyalar
-  const handleOpenViewDialog = (order) => {
-    setSelectedOrder(order);
-    setOpenViewDialog(true);
-  };
-
-  const handleCloseViewDialog = () => {
-    setOpenViewDialog(false);
-    setSelectedOrder(null);
-  };
-
-  const handleOpenCourierDialog = (orderId) => {
-    if (!checkPermissions()) {
-      showSnackbar('Buyurtmalarni va kuryerlarni boshqarish uchun huquqlar yetarli emas', 'error');
-      return;
-    }
-
-    const order = orders.find(o => o._id === orderId);
-    if (order) {
-      setSelectedOrder(order);
-      setOpenCourierDialog(true);
-    }
-  };
-
-  const handleCloseCourierDialog = () => {
-    setOpenCourierDialog(false);
-    setSelectedOrder(null);
-  };
-
-  const handleAssignCourier = async (orderId, courierId) => {
-    if (!checkPermissions()) {
-      showSnackbar('Buyurtmalarni va kuryerlarni boshqarish uchun huquqlar yetarli emas', 'error');
-      return;
-    }
-
-    await assignCourierToOrder(orderId, courierId);
-  };
-
-  const handleUpdateStatus = async (orderId, newStatus) => {
-    await updateOrderStatus(orderId, newStatus);
-  };
-
-  // Status funksiyalari
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'pending':
-        return 'Kutilmoqda';
-      case 'confirmed':
-        return 'Tasdiqlangan';
-      case 'processing':
-        return 'Jarayonda';
-      case 'shipped':
-        return 'Yetkazilmoqda';
-      case 'delivered':
-        return 'Yetkazildi';
-      case 'cancelled':
-        return 'Bekor qilindi';
-      default:
-        return status;
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending':
-        return 'warning';
-      case 'confirmed':
-        return 'info';
-      case 'processing':
-        return 'info';
-      case 'shipped':
-        return 'primary';
-      case 'delivered':
-        return 'success';
-      case 'cancelled':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
-  // Yordamchi funksiyalar
-  const showSnackbar = (message, severity) => {
-    setSnackbar({
-      open: true,
-      message,
-      severity,
-    });
-  };
-
-  // useEffect hooks
   useEffect(() => {
-    fetchOrders();
-  }, []);
+    fetchOrders(page);
+  }, [page]);
+
+  // Buyurtma holatini yangilash
+  const handleUpdateStatus = async (orderId, newStatus) => {
+    try {
+      const response = await axios.put(
+        `/api/orders/${orderId}/status`,
+        { status: newStatus },
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      // Modal oynani yopish
+      setViewDialogOpen(false);
+      
+      // Muvaffaqiyatli xabar
+      setSnackbar({
+        open: true,
+        message: response.data.message || 'Buyurtma statusi yangilandi',
+        severity: 'success'
+      });
+      
+      // Buyurtmalar ro'yxatini yangilash
+      fetchOrders(page);
+
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      // Xatolik xabari
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Buyurtma holatini yangilashda xatolik yuz berdi',
+        severity: 'error'
+      });
+    }
+  };
+
+  // Buyurtmaga kuryer tayinlash
+  const handleAssignCourier = async (orderId, courier) => {
+    try {
+      const response = await axios.put(
+        `/api/orders/${orderId}/assign-courier`,
+        { courierId: courier._id },
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      // Muvaffaqiyatli bo'lsa
+      fetchOrders(page);
+      setViewDialogOpen(false);
+      
+    } catch (error) {
+      console.error('Error assigning courier:', error);
+      if (error.response?.data?.message) {
+        setError(error.response.data.message);
+      } else {
+        setError('Kuryer tayinlashda xatolik yuz berdi');
+      }
+    }
+  };
+
+  // Kuryer tayinlash dialogini ochish
+  const handleOpenCourierDialog = (order) => {
+    setSelectedOrder(order);
+    setCourierDialogOpen(true);
+  };
+
+  // Buyurtma ma'lumotlarini ko'rish
+  const handleViewOrder = (order) => {
+    setSelectedOrder(order);
+    setViewDialogOpen(true);
+  };
 
   return (
-    <Box sx={{ width: '100%', p: 3, backgroundColor: '#f5f5f5', minHeight: '100vh' }}>
-      <Paper
-        elevation={0}
-        sx={{
-          p: 3,
-          backgroundColor: 'white',
-          borderRadius: 2,
-        }}
-      >
-        {/* Header */}
-        <Grid container spacing={2} alignItems="center" sx={{ mb: 3 }}>
-          <Grid item xs>
-            <Typography variant="h5" sx={{ color: '#1a237e' }}>
-              Buyurtmalar
-            </Typography>
-          </Grid>
-          <Grid item>
-            <Stack direction="row" spacing={2} justifyContent="flex-end">
-              <Button
-                variant="contained"
-                onClick={fetchOrders}
-                startIcon={<RefreshIcon />}
-                sx={{
-                  backgroundColor: '#1a237e',
-                  '&:hover': {
-                    backgroundColor: '#0d47a1',
-                  },
-                }}
-              >
-                Yangilash
-              </Button>
-            </Stack>
-          </Grid>
-        </Grid>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
+          Buyurtmalar
+        </Typography>
 
         {loading ? (
-          <LinearProgress />
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+            <CircularProgress />
+          </Box>
+        ) : error ? (
+          <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
         ) : (
-          <OrderList
-            orders={orders}
-            onViewOrder={handleOpenViewDialog}
-            onOpenCourierDialog={handleOpenCourierDialog}
-            getStatusText={getStatusText}
-            getStatusColor={getStatusColor}
-          />
+          <>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Buyurtma ID</TableCell>
+                    <TableCell>Sana</TableCell>
+                    <TableCell>Mijoz</TableCell>
+                    <TableCell>Kurier</TableCell>
+                    <TableCell>Holat</TableCell>
+                    <TableCell align="right">Summa</TableCell>
+                    <TableCell align="center">Amallar</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {orders.map((order) => (
+                    <TableRow key={order._id}>
+                      <TableCell>{order.orderId}</TableCell>
+                      <TableCell>
+                        {format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}
+                      </TableCell>
+                      <TableCell>
+                        <Stack spacing={0.5}>
+                          <Typography variant="body2">
+                            {order.user.firstName} {order.user.lastName}
+                          </Typography>
+                          {order.user.phoneNumber && (
+                            <Typography variant="caption" color="textSecondary">
+                              {order.user.phoneNumber}
+                            </Typography>
+                          )}
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        {order.courier ? (
+                          <Stack spacing={0.5}>
+                            <Typography variant="body2">
+                              {order.courier.firstName} {order.courier.lastName}
+                            </Typography>
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2" color="textSecondary">
+                            Tayinlanmagan
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={
+                            {
+                              pending: 'Kutilmoqda',
+                              processing: 'Jarayonda',
+                              shipped: 'Yetkazilmoqda',
+                              delivered: 'Yetkazildi',
+                              cancelled: 'Bekor qilindi',
+                            }[order.status]
+                          }
+                          color={
+                            {
+                              pending: 'warning',
+                              processing: 'info',
+                              shipped: 'info',
+                              delivered: 'success',
+                              cancelled: 'error',
+                            }[order.status]
+                          }
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2">
+                          {order.totalPrice.toLocaleString()} UZS
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setSelectedOrder(order);
+                            setViewDialogOpen(true);
+                          }}
+                        >
+                          <ViewIcon />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+
+            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(e, value) => setPage(value)}
+                color="primary"
+                showFirstButton
+                showLastButton
+              />
+            </Box>
+          </>
         )}
       </Paper>
 
-      {/* Buyurtma ko'rish modali */}
+      {/* Buyurtma ko'rish dialogi */}
       <OrderViewDialog
         order={selectedOrder}
-        open={openViewDialog}
-        onClose={handleCloseViewDialog}
-        getStatusText={getStatusText}
-        getStatusColor={getStatusColor}
+        open={viewDialogOpen}
+        onClose={() => setViewDialogOpen(false)}
         onUpdateStatus={handleUpdateStatus}
-        onOpenCourierDialog={handleOpenCourierDialog}
+        onAssignCourier={handleAssignCourier}
+        getStatusText={(status) => ({
+          pending: 'Kutilmoqda',
+          processing: 'Jarayonda',
+          shipped: 'Yetkazilmoqda',
+          delivered: 'Yetkazildi',
+          cancelled: 'Bekor qilindi',
+        }[status])}
+        getStatusColor={(status) => ({
+          pending: '#ed6c02',
+          processing: '#0288d1',
+          shipped: '#0288d1',
+          delivered: '#2e7d32',
+          cancelled: '#d32f2f',
+        }[status])}
       />
 
-      {/* Kuryer tayinlash modali */}
+      {/* Kuryer tayinlash dialogi */}
       <OrderCourierDialog
-        open={openCourierDialog}
-        onClose={handleCloseCourierDialog}
-        onAssign={handleAssignCourier}
+        open={courierDialogOpen}
+        onClose={() => setCourierDialogOpen(false)}
         order={selectedOrder}
+        onSuccess={() => {
+          setCourierDialogOpen(false);
+          fetchOrders(page);
+        }}
       />
 
       {/* Snackbar */}
-      <Snackbar
-        open={snackbar.open}
-        autoHideDuration={6000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
-        <Alert
-          onClose={() => setSnackbar({ ...snackbar, open: false })}
+        <Alert 
+          onClose={handleCloseSnackbar} 
           severity={snackbar.severity}
           variant="filled"
           sx={{ width: '100%' }}
@@ -295,6 +316,8 @@ export default function Orders() {
           {snackbar.message}
         </Alert>
       </Snackbar>
-    </Box>
+    </Container>
   );
-}
+};
+
+export default Orders;

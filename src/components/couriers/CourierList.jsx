@@ -90,7 +90,9 @@ const CourierList = ({
                 </Box>
               </TableCell>
               <TableCell>
-                {courier.deliveredOrders || 0}
+                <Typography variant="body2" color="text.secondary">
+                  {courier.orders?.length || courier.deliveredOrders || '-'}
+                </Typography>
               </TableCell>
               <TableCell>
                 <Chip
