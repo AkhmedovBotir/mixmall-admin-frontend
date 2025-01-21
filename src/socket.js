@@ -1,69 +1,64 @@
 import { io } from 'socket.io-client';
 
 // Socket.IO konfiguratsiyasi
-const SOCKET_URL = import.meta.env.PROD 
-  ? 'https://adderapi.mixmall.uz'  // Production API URL
-  : '/';                           // Development uchun
+const SOCKET_URL = 'https://adderapi.mixmall.uz'; // Production API URL
 
 const socket = io(SOCKET_URL, {
   path: '/socket.io',
-  transports: ['polling'], // Faqat polling ishlatamiz, WebSocket muammoli
+  transports: ['polling', 'websocket'],
   autoConnect: true,
   reconnection: true,
-  reconnectionAttempts: 5,
+  reconnectionAttempts: Infinity,
   reconnectionDelay: 1000,
   reconnectionDelayMax: 5000,
   timeout: 20000,
   forceNew: true,
-  withCredentials: true, // CORS uchun
+  withCredentials: true,
+  auth: {
+    token: localStorage.getItem('token')
+  }
 });
-
-// Xatoliklarni qayta ishlash
-let retryCount = 0;
-const MAX_RETRIES = 3;
 
 // Ulanish holatlarini kuzatish
 socket.on('connect', () => {
   console.log('Socket.IO serverga ulandi:', socket.id);
-  retryCount = 0;
 });
 
 socket.on('disconnect', (reason) => {
   console.log('Socket.IO serverdan uzildi. Sabab:', reason);
-  
-  if (reason === 'io server disconnect' && retryCount < MAX_RETRIES) {
-    socket.connect();
-    retryCount++;
-  }
 });
 
 socket.on('connect_error', (error) => {
-  console.error('Socket.IO ulanish xatosi:', error.message);
-  retryCount++;
-  
-  if (retryCount >= MAX_RETRIES) {
-    console.log('Ulanish urinishlari tugadi');
-    socket.disconnect();
-  }
+  console.error('Socket.IO ulanish xatoligi:', error.message);
 });
 
 socket.on('error', (error) => {
   console.error('Socket.IO xatolik:', error);
 });
 
-// Qayta ulanishni kuzatish
-socket.io.on("reconnect_attempt", (attempt) => {
-  if (attempt > MAX_RETRIES) {
-    socket.disconnect();
-    console.log('Socket.IO qayta ulanish urinishlari tugadi');
-    return;
+// Token o'zgarganda qayta ulash
+const updateToken = () => {
+  const token = localStorage.getItem('token');
+  socket.auth = { token };
+  
+  if (socket.connected) {
+    socket.disconnect().connect();
   }
-  console.log(`Qayta ulanish urinishi: ${attempt}`);
-});
+};
 
-socket.io.on("reconnect", (attempt) => {
-  console.log(`${attempt}-urinishda qayta ulandi`);
-  retryCount = 0;
-});
+// Login bo'lganda
+const connectSocket = () => {
+  if (!socket.connected) {
+    socket.connect();
+  }
+};
 
-export { socket };
+// Logout bo'lganda
+const disconnectSocket = () => {
+  if (socket.connected) {
+    socket.disconnect();
+  }
+};
+
+export { updateToken, connectSocket, disconnectSocket };
+export default socket;

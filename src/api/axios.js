@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: 'https://adderapi.mixmall.uz/api',
   timeout: 15000,
   withCredentials: true,
   headers: {
@@ -23,13 +23,13 @@ api.interceptors.request.use(
     console.log('Ma\'lumotlar:', config.data);
     console.log('===================');
 
-    // CORS uchun kerakli headerlarni qo'shish
-    config.headers['Access-Control-Allow-Credentials'] = true;
-    
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
+    // CORS headerlarni olib tashlaymiz
+    delete config.headers['Access-Control-Allow-Credentials'];
+    
     return config;
   },
   (error) => {

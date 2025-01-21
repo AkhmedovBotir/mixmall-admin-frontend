@@ -46,7 +46,7 @@ const Orders = () => {
   const fetchOrders = async (pageNum = 1) => {
     try {
       setLoading(true);
-      const response = await axios.get(`/api/orders?page=${pageNum}&limit=10`, {
+      const response = await axios.get(`https://adderapi.mixmall.uz/api/orders?page=${pageNum}&limit=10`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('token')}`,
         },
@@ -73,7 +73,7 @@ const Orders = () => {
   const handleUpdateStatus = async (orderId, newStatus) => {
     try {
       const response = await axios.put(
-        `/api/orders/${orderId}/status`,
+        `https://adderapi.mixmall.uz/api/orders/${orderId}/status`,
         { status: newStatus },
         {
           headers: {
@@ -111,7 +111,7 @@ const Orders = () => {
   const handleAssignCourier = async (orderId, courier) => {
     try {
       const response = await axios.put(
-        `/api/orders/${orderId}/assign-courier`,
+        `https://adderapi.mixmall.uz/api/orders/${orderId}/courier`,
         { courierId: courier._id },
         {
           headers: {

@@ -1,8 +1,10 @@
 import axios from 'axios';
 
+const BASE_URL = 'https://adderapi.mixmall.uz'  // Production API URL
+
 const api = axios.create({
-  baseURL: '/api',
-  withCredentials: true,
+  baseURL: BASE_URL,
+  withCredentials: false,
   headers: {
     'Content-Type': 'application/json',
     'Accept': 'application/json'
@@ -19,7 +21,6 @@ api.interceptors.request.use(
     return config;
   },
   (error) => {
-    console.error('Request interceptor - Error:', error);
     return Promise.reject(error);
   }
 );
@@ -27,11 +28,22 @@ api.interceptors.request.use(
 // Response interceptor
 api.interceptors.response.use(
   (response) => {
-    return response.data;
+    return response.data; // Faqat data ni qaytaramiz
   },
   (error) => {
-    console.error('Response interceptor - Error:', error);
-    return Promise.reject(error);
+    if (error.response) {
+      // Server xatoligi
+      console.error('Server xatoligi:', error.response.data);
+      return Promise.reject(error.response.data);
+    } else if (error.request) {
+      // So'rov xatoligi
+      console.error('So\'rov xatoligi:', error.request);
+      return Promise.reject(new Error('Server bilan bog\'lanishda xatolik'));
+    } else {
+      // Boshqa xatolik
+      console.error('Xatolik:', error.message);
+      return Promise.reject(error);
+    }
   }
 );
 

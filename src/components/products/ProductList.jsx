@@ -1,111 +1,116 @@
 import React, { useState, useEffect } from 'react';
 import {
+  Box,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  TablePagination,
   Paper,
   IconButton,
-  TablePagination,
+  Typography,
+  Grid,
   TextField,
   FormControl,
   InputLabel,
   Select,
   MenuItem,
-  Grid,
   CircularProgress,
-  Typography,
-  Box,
-  Button,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogContentText,
   DialogActions,
-  Chip
+  Button
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, Visibility as VisibilityIcon } from '@mui/icons-material';
+import {
+  Visibility as VisibilityIcon,
+  Edit as EditIcon,
+  Delete as DeleteIcon
+} from '@mui/icons-material';
 import axios from 'axios';
-import ProductViewDialog from './ProductViewDialog';
+import { SnackbarProvider } from 'notistack';
+import socket from '../../socket';
 import ProductFormDialog from './ProductFormDialog';
 
-const ProductList = () => {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [viewDialogOpen, setViewDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+function ProductList({ 
+  products: initialProducts, 
+  loading: initialLoading,
+  pagination,
+  onPageChange,
+  onLimitChange,
+  onProductDelete,
+  onProductSuccess,
+  enqueueSnackbar 
+}) {
+  // Local states
+  const [products, setProducts] = useState(initialProducts);
+  const [loading, setLoading] = useState(initialLoading);
+  const [page, setPage] = useState(pagination?.page ? pagination.page - 1 : 0);
+  const [rowsPerPage, setRowsPerPage] = useState(pagination?.limit || 10);
   const [selectedProduct, setSelectedProduct] = useState(null);
-  const [productToDelete, setProductToDelete] = useState(null);
-  const [filters, setFilters] = useState({
-    category: '',
-    brand: '',
-    minPrice: '',
-    maxPrice: '',
-    inStock: 'all',
-    sortBy: 'price',
-    sortOrder: 'desc'
-  });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
 
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const params = {
-        page: page + 1,
-        limit: rowsPerPage,
-        ...filters,
-        minPrice: filters.minPrice || undefined,
-        maxPrice: filters.maxPrice || undefined,
-        inStock: filters.inStock === 'true' ? true : undefined
-      };
+  // Update local state when props change
+  useEffect(() => {
+    setProducts(initialProducts || []);
+  }, [initialProducts]);
 
-      const response = await axios.get('/api/products', {
-        params,
-        withCredentials: true,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
+  useEffect(() => {
+    setLoading(initialLoading);
+  }, [initialLoading]);
+
+  // Socket events
+  useEffect(() => {
+    const setupSocketEvents = () => {
+      socket.on('product:created', (data) => {
+        console.log('Yangi mahsulot:', data);
+        if (onProductSuccess) {
+          onProductSuccess();
         }
       });
-      
-      if (response.data?.data?.products && Array.isArray(response.data.data.products)) {
-        setProducts(response.data.data.products);
-      } else {
-        setProducts([]);
-      }
-    } catch (error) {
-      console.error('Mahsulotlarni yuklashda xatolik:', error);
-      setError('Mahsulotlarni yuklashda xatolik yuz berdi');
-      setProducts([]);
-    } finally {
-      setLoading(false);
+
+      socket.on('product:updated', (data) => {
+        console.log('Mahsulot yangilandi:', data);
+        if (onProductSuccess) {
+          onProductSuccess();
+        }
+      });
+
+      socket.on('product:deleted', (data) => {
+        console.log('Mahsulot o\'chirildi:', data);
+        if (onProductSuccess) {
+          onProductSuccess();
+        }
+      });
+    };
+
+    setupSocketEvents();
+
+    return () => {
+      socket.off('product:created');
+      socket.off('product:updated');
+      socket.off('product:deleted');
+    };
+  }, [onProductSuccess]);
+
+  // Handlers
+  const handleChangePage = (event, newPage) => {
+    setPage(newPage);
+    if (onPageChange) {
+      onPageChange(newPage + 1);
     }
   };
 
-  useEffect(() => {
-    fetchProducts();
-  }, [page, rowsPerPage, filters]);
-
-  const handleChangePage = (event, newPage) => {
-    setPage(newPage);
-  };
-
   const handleChangeRowsPerPage = (event) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
+    const newLimit = parseInt(event.target.value, 10);
+    setRowsPerPage(newLimit);
     setPage(0);
-  };
-
-  const handleView = (product) => {
-    setSelectedProduct(product);
-    setViewDialogOpen(true);
+    if (onLimitChange) {
+      onLimitChange(newLimit);
+    }
   };
 
   const handleEdit = (product) => {
@@ -114,39 +119,9 @@ const ProductList = () => {
   };
 
   const handleDeleteClick = (product) => {
-    setProductToDelete(product);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDelete = async () => {
-    try {
-      setLoading(true);
-      
-      await axios.delete(`/api/products/${productToDelete._id}`, {
-        withCredentials: true,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
-
-      setDeleteDialogOpen(false);
-      fetchProducts();
-    } catch (error) {
-      console.error('Mahsulotni o\'chirishda xatolik:', error);
-      setError('Mahsulotni o\'chirishda xatolik yuz berdi');
-    } finally {
-      setLoading(false);
+    if (onProductDelete) {
+      onProductDelete(product);
     }
-  };
-
-  const handleFilterChange = (field) => (event) => {
-    setFilters(prev => ({
-      ...prev,
-      [field]: event.target.value
-    }));
-    setPage(0);
   };
 
   if (loading) {
@@ -157,196 +132,104 @@ const ProductList = () => {
     );
   }
 
-  if (error) {
+  if (products.length === 0) {
     return (
       <Box sx={{ p: 3, textAlign: 'center' }}>
-        <Typography color="error">{error}</Typography>
+        <Typography>Mahsulotlar topilmadi</Typography>
       </Box>
     );
   }
 
   return (
-    <div>
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={12} md={2}>
-          <TextField
-            fullWidth
-            label="Minimal narx"
-            type="number"
-            value={filters.minPrice}
-            onChange={handleFilterChange('minPrice')}
-          />
-        </Grid>
-        <Grid item xs={12} md={2}>
-          <TextField
-            fullWidth
-            label="Maksimal narx"
-            type="number"
-            value={filters.maxPrice}
-            onChange={handleFilterChange('maxPrice')}
-          />
-        </Grid>
-        <Grid item xs={12} md={2}>
-          <FormControl fullWidth>
-            <InputLabel>Mavjudligi</InputLabel>
-            <Select
-              value={filters.inStock}
-              onChange={handleFilterChange('inStock')}
-              label="Mavjudligi"
-            >
-              <MenuItem value="all">Barchasi</MenuItem>
-              <MenuItem value="true">Mavjud</MenuItem>
-              <MenuItem value="false">Mavjud emas</MenuItem>
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} md={2}>
-          <FormControl fullWidth>
-            <InputLabel>Saralash</InputLabel>
-            <Select
-              value={filters.sortBy}
-              onChange={handleFilterChange('sortBy')}
-              label="Saralash"
-            >
-              <MenuItem value="price">Narx</MenuItem>
-              <MenuItem value="name">Nomi</MenuItem>
-              <MenuItem value="createdAt">Yaratilgan vaqti</MenuItem>
-            </Select>
-          </FormControl>
-        </Grid>
-        <Grid item xs={12} md={2}>
-          <FormControl fullWidth>
-            <InputLabel>Tartib</InputLabel>
-            <Select
-              value={filters.sortOrder}
-              onChange={handleFilterChange('sortOrder')}
-              label="Tartib"
-            >
-              <MenuItem value="asc">O'sish bo'yicha</MenuItem>
-              <MenuItem value="desc">Kamayish bo'yicha</MenuItem>
-            </Select>
-          </FormControl>
-        </Grid>
-      </Grid>
-
-      {products.length === 0 ? (
-        <Box sx={{ p: 3, textAlign: 'center' }}>
-          <Typography>Mahsulotlar topilmadi</Typography>
-        </Box>
-      ) : (
-        <TableContainer component={Paper}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Rasm</TableCell>
-                <TableCell>Nomi</TableCell>
-                <TableCell>Narx</TableCell>
-                <TableCell>Soni</TableCell>
-                <TableCell>Brand</TableCell>
-                <TableCell>Amallar</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {products.map((product) => (
-                <TableRow key={product._id}>
-                  <TableCell>
-                    {product.images?.[0] && (
-                      <Box
-                        component="img"
-                        src={`https://adderapi.mixmall.uz${product.images[0]}`}
-                        alt={product.name}
-                        sx={{ width: 50, height: 50, objectFit: 'cover' }}
-                      />
-                    )}
-                  </TableCell>
-                  <TableCell>{product.name}</TableCell>
-                  <TableCell>
-                    {product.discount_percent > 0 ? (
-                      <Box>
-                        <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold' }}>
-                          {(product.price * (1 - product.discount_percent / 100)).toLocaleString()} so'm
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ textDecoration: 'line-through', display: 'block' }}
-                        >
-                          {product.price.toLocaleString()} so'm
-                        </Typography>
-                      </Box>
-                    ) : (
-                      <Typography>
+    <Box sx={{ width: '100%' }}>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Rasm</TableCell>
+              <TableCell>Nomi</TableCell>
+              <TableCell>Narx</TableCell>
+              <TableCell>Soni</TableCell>
+              <TableCell>Brand</TableCell>
+              <TableCell>Amallar</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {products.map((product) => (
+              <TableRow key={product._id}>
+                <TableCell>
+                  {product.images?.[0] && (
+                    <Box
+                      component="img"
+                      src={`https://adderapi.mixmall.uz${product.images[0]}`}
+                      alt={product.name}
+                      sx={{ width: 50, height: 50, objectFit: 'cover' }}
+                    />
+                  )}
+                </TableCell>
+                <TableCell>{product.name}</TableCell>
+                <TableCell>
+                  {product.discount_percent > 0 ? (
+                    <Box>
+                      <Typography variant="body2" color="primary" sx={{ fontWeight: 'bold' }}>
+                        {(product.price * (1 - product.discount_percent / 100)).toLocaleString()} so'm
+                      </Typography>
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ textDecoration: 'line-through', display: 'block' }}
+                      >
                         {product.price.toLocaleString()} so'm
                       </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>{product.stock}</TableCell>
-                  <TableCell>{product.brand?.name}</TableCell>
-                  <TableCell>
-                    <IconButton onClick={() => handleView(product)}>
-                      <VisibilityIcon />
-                    </IconButton>
-                    <IconButton onClick={() => handleEdit(product)}>
-                      <EditIcon />
-                    </IconButton>
-                    <IconButton onClick={() => handleDeleteClick(product)} color="error">
-                      <DeleteIcon />
-                    </IconButton>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          <TablePagination
-            component="div"
-            count={-1}
-            rowsPerPage={rowsPerPage}
-            page={page}
-            onPageChange={handleChangePage}
-            onRowsPerPageChange={handleChangeRowsPerPage}
-            rowsPerPageOptions={[5, 10, 25]}
-          />
-        </TableContainer>
-      )}
+                    </Box>
+                  ) : (
+                    <Typography>
+                      {product.price.toLocaleString()} so'm
+                    </Typography>
+                  )}
+                </TableCell>
+                <TableCell>{product.stock}</TableCell>
+                <TableCell>{product.brand?.name}</TableCell>
+                <TableCell>
+                  <IconButton onClick={() => handleEdit(product)}>
+                    <EditIcon />
+                  </IconButton>
+                  <IconButton onClick={() => handleDeleteClick(product)} color="error">
+                    <DeleteIcon />
+                  </IconButton>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        <TablePagination
+          component="div"
+          count={pagination?.total || 0}
+          rowsPerPage={rowsPerPage}
+          page={page}
+          onPageChange={handleChangePage}
+          onRowsPerPageChange={handleChangeRowsPerPage}
+          rowsPerPageOptions={[5, 10, 25, 50]}
+          labelRowsPerPage="Sahifadagi mahsulotlar:"
+          labelDisplayedRows={({ from, to, count }) => 
+            `${from}-${to} dan ${count !== -1 ? count : `${to} dan ko'proq`}`
+          }
+        />
+      </TableContainer>
 
-      <ProductViewDialog
-        open={viewDialogOpen}
-        onClose={() => setViewDialogOpen(false)}
-        product={selectedProduct}
-      />
-
+      {/* O'zgartirish modali */}
       <ProductFormDialog
         open={editDialogOpen}
         onClose={() => {
           setEditDialogOpen(false);
-          fetchProducts();
+          setSelectedProduct(null);
         }}
         product={selectedProduct}
+        onSuccess={onProductSuccess}
+        enqueueSnackbar={enqueueSnackbar}
       />
-
-      {/* O'chirish tasdiqlash dialogi */}
-      <Dialog
-        open={deleteDialogOpen}
-        onClose={() => setDeleteDialogOpen(false)}
-      >
-        <DialogTitle>Mahsulotni o'chirish</DialogTitle>
-        <DialogContent>
-          <DialogContentText>
-            {productToDelete?.name} mahsulotini o'chirishni tasdiqlaysizmi?
-            Bu amalni ortga qaytarib bo'lmaydi.
-          </DialogContentText>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeleteDialogOpen(false)}>
-            Bekor qilish
-          </Button>
-          <Button onClick={handleDelete} color="error" variant="contained">
-            O'chirish
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </div>
+    </Box>
   );
-};
+}
 
 export default ProductList;

@@ -103,7 +103,7 @@ export default function Users() {
   const fetchUsers = async () => {
     try {
       setLoading(true)
-      const response = await axios.get('/api/users', {
+      const response = await axios.get(`${API_URL}/users`, {
         withCredentials: true,
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -153,7 +153,7 @@ export default function Users() {
 
   const handleDeleteUser = async (userId) => {
     try {
-      const response = await axios.delete(`/api/users/${userId}`, {
+      const response = await axios.delete(`${API_URL}/users/${userId}`, {
         withCredentials: true,
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -182,7 +182,7 @@ export default function Users() {
 
   const handleUpdateUser = async (userData) => {
     try {
-      const response = await axios.put(`/api/users/${userData._id}`, userData, {
+      const response = await axios.put(`${API_URL}/users/${userData._id}`, userData, {
         withCredentials: true,
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,

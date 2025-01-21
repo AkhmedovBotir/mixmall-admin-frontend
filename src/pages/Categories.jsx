@@ -13,7 +13,7 @@ import {
 import { Add as AddIcon } from '@mui/icons-material';
 import api from '../utils/api';
 import { useSnackbar } from '../hooks/useSnackbar';
-import { socket } from '../socket';
+import socket from '../socket';
 import CategoryList from '../components/categories/CategoryList';
 import CategoryFormDialog from '../components/categories/CategoryFormDialog';
 
@@ -25,6 +25,8 @@ const Categories = () => {
   const [formDialogOpen, setFormDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [categoryToDelete, setCategoryToDelete] = useState(null);
+  const [formLoading, setFormLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const { snackbar, showSnackbar, hideSnackbar } = useSnackbar();
 
   // Socket events
@@ -43,17 +45,9 @@ const Categories = () => {
   const fetchCategories = async () => {
     try {
       setLoading(true);
-      const response = await api.get('/categories', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
+      const response = await api.get('/api/categories');
       
-      console.log('Fetched categories:', response);
-      
-      if (response && Array.isArray(response.data)) {
+      if (response.status === 'success' && Array.isArray(response.data)) {
         setCategories(response.data);
       } else {
         console.error('Kutilmagan server javobi:', response);
@@ -99,136 +93,63 @@ const Categories = () => {
     setCategoryToDelete(null);
   };
 
-  const handleDelete = async () => {
-    if (!categoryToDelete?._id) return;
-
+  const handleSubmit = async (formData) => {
     try {
-      setLoading(true);
-      const response = await api.delete(`/categories/${categoryToDelete._id}`, {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        }
-      });
+      setFormLoading(true);
 
-      if (response && response.success) {
-        showSnackbar('Kategoriya muvaffaqiyatli o\'chirildi', 'success');
-        handleCloseDeleteDialog();
-        fetchCategories();
-      } else {
-        throw new Error(response?.message || 'Kategoriyani o\'chirishda xatolik');
+      const data = new FormData();
+      data.append('name', formData.name);
+      if (formData.image) {
+        data.append('image', formData.image);
       }
+      if (formData.subcategories?.length) {
+        data.append('subcategories', JSON.stringify(formData.subcategories));
+      }
+
+      if (formMode === 'edit' && selectedCategory?._id) {
+        await api.put(`/api/categories/${selectedCategory._id}`, data, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+        showSnackbar('Kategoriya muvaffaqiyatli yangilandi', 'success');
+      } else {
+        await api.post('/api/categories', data, {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        });
+        showSnackbar('Kategoriya muvaffaqiyatli qo\'shildi', 'success');
+      }
+
+      setFormDialogOpen(false);
+      fetchCategories();
     } catch (error) {
-      console.error('Error deleting category:', error);
+      console.error('Error submitting category:', error);
       showSnackbar(
-        error.message || 'Kategoriyani o\'chirishda xatolik',
+        error.message || 'Kategoriyani saqlashda xatolik yuz berdi',
         'error'
       );
     } finally {
-      setLoading(false);
+      setFormLoading(false);
     }
   };
 
-  const handleSubmit = async (formData) => {
+  const handleDelete = async () => {
     try {
-      setLoading(true);
-      const formDataToSend = new FormData();
-
-      // Asosiy maydonlar
-      formDataToSend.append('name', formData.name);
-      if (formMode === 'edit') {
-        formDataToSend.append('status', formData.status || 'active');
-      }
-
-      // Rasm
-      if (formData.image instanceof File) {
-        formDataToSend.append('image', formData.image);
-      }
-
-      // Subkategoriyalar
-      if (formData.subcategories?.length > 0) {
-        formData.subcategories.forEach((sub, index) => {
-          if (sub._id) {
-            // Mavjud subkategoriya
-            formDataToSend.append(`subcategories[${index}][_id]`, sub._id);
-            formDataToSend.append(`subcategories[${index}][name]`, sub.name);
-            formDataToSend.append(`subcategories[${index}][status]`, sub.status || 'active');
-          } else {
-            // Yangi subkategoriya
-            formDataToSend.append(`subcategories[${index}][name]`, sub.name);
-            formDataToSend.append(`subcategories[${index}][status]`, 'active');
-          }
-        });
-      }
-
-      // Request data ni log qilish
-      console.log('Form data:', formData);
-      console.log('FormData entries:');
-      for (let pair of formDataToSend.entries()) {
-        console.log(pair[0], pair[1]);
-      }
-
-      const response = await api({
-        method: formMode === 'add' ? 'post' : 'put',
-        url: formMode === 'add' ? '/categories' : `/categories/${formData._id}`,
-        data: formDataToSend,
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`,
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      console.log('Response:', response);
-
-      // Response tekshirish
-      if (!response || response.status !== 'success') {
-        throw new Error(response?.message || 'Xatolik yuz berdi');
-      }
-
-      // Socket event yuborish
-      socket.emit('categoryUpdate', {
-        type: formMode === 'add' ? 'CATEGORY_CREATED' : 'CATEGORY_UPDATED',
-        category: response.data
-      });
-
-      showSnackbar(
-        formMode === 'add'
-          ? "Kategoriya muvaffaqiyatli qo'shildi"
-          : 'Kategoriya muvaffaqiyatli yangilandi',
-        'success'
-      );
-      
-      handleCloseFormDialog();
+      setDeleteLoading(true);
+      await api.delete(`/api/categories/${categoryToDelete._id}`);
+      showSnackbar('Kategoriya muvaffaqiyatli o\'chirildi', 'success');
+      setDeleteDialogOpen(false);
       fetchCategories();
-
     } catch (error) {
-      console.error('Error submitting category:', error);
-      console.log('Error details:', {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-        response: error.response ? {
-          status: error.response.status,
-          statusText: error.response.statusText,
-          data: error.response.data,
-          headers: error.response.headers
-        } : undefined
-      });
-
-      let errorMessage = 'Xatolik yuz berdi';
-      
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-      } else if (error.response?.data?.error) {
-        errorMessage = error.response.data.error;
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-
-      showSnackbar(errorMessage, 'error');
+      console.error('Error deleting category:', error);
+      showSnackbar(
+        error.message || 'Kategoriyani o\'chirishda xatolik yuz berdi',
+        'error'
+      );
     } finally {
-      setLoading(false);
+      setDeleteLoading(false);
     }
   };
 
@@ -269,7 +190,7 @@ const Categories = () => {
         onSubmit={handleSubmit}
         mode={formMode}
         category={selectedCategory}
-        loading={loading}
+        loading={formLoading}
       />
 
       {/* Delete dialog */}
@@ -292,7 +213,7 @@ const Categories = () => {
             onClick={handleDelete}
             color="error"
             disabled={loading}
-            startIcon={loading && <CircularProgress size={20} />}
+            startIcon={deleteLoading && <CircularProgress size={20} />}
           >
             O'chirish
           </Button>

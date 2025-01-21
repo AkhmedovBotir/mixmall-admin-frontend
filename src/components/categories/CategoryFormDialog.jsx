@@ -136,6 +136,10 @@ const CategoryFormDialog = ({
       newErrors.name = 'Kategoriya nomi kiritilishi shart';
     }
     
+    if (mode === 'add' && !formData.image) {
+      newErrors.image = 'Rasm yuklash majburiy';
+    }
+    
     formData.subcategories.forEach((sub, index) => {
       if (!sub.name.trim()) {
         newErrors[`subcategory${index}`] = 'Subkategoriya nomi kiritilishi shart';

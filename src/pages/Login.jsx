@@ -63,7 +63,7 @@ export default function Login() {
     }
 
     try {
-      const response = await axios.post('/api/admins/login', {
+      const response = await axios.post('https://adderapi.mixmall.uz/api/admins/login', {
         email: email.toLowerCase(),
         password
       }, {

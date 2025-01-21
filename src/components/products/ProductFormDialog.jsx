@@ -16,19 +16,19 @@ import {
   FormHelperText,
   Chip,
   InputAdornment,
-  Typography
+  Typography,
+  OutlinedInput
 } from '@mui/material';
 import { Close as CloseIcon, Add as AddIcon, Delete as DeleteIcon, CloudUpload as CloudUploadIcon } from '@mui/icons-material';
 import axios from 'axios';
 import ReactQuill from 'react-quill';
 import 'react-quill/dist/quill.snow.css';
 
-const ProductFormDialog = ({ open, onClose, product }) => {
+const ProductFormDialog = ({ open, onClose, product, onSuccess, enqueueSnackbar }) => {
   const initialFormData = {
     name: '',
     price: '',
     stock: '',
-    discount_percent: 0,
     brand: '',
   };
 
@@ -44,7 +44,6 @@ const ProductFormDialog = ({ open, onClose, product }) => {
   const [imagesToDelete, setImagesToDelete] = useState([]);
   const [errors, setErrors] = useState({});
   const [description, setDescription] = useState('');
-  const [discountPrice, setDiscountPrice] = useState(0);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -53,7 +52,6 @@ const ProductFormDialog = ({ open, onClose, product }) => {
         name: product.name || '',
         price: product.price || '',
         stock: product.stock || '',
-        discount_percent: product.discount_percent || 0,
         brand: product.brand?._id || product.brand || '',
       });
       setDescription(product.description || '');
@@ -79,7 +77,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
     const fetchData = async () => {
       try {
         const [brandsRes, categoriesRes] = await Promise.all([
-          axios.get('/api/brands', {
+          axios.get('https://adderapi.mixmall.uz/api/brands', {
             withCredentials: true,
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -87,7 +85,7 @@ const ProductFormDialog = ({ open, onClose, product }) => {
               'Accept': 'application/json'
             }
           }),
-          axios.get('/api/categories', {
+          axios.get('https://adderapi.mixmall.uz/api/categories', {
             withCredentials: true,
             headers: {
               'Authorization': `Bearer ${localStorage.getItem('token')}`,
@@ -104,15 +102,6 @@ const ProductFormDialog = ({ open, onClose, product }) => {
         if (categoriesRes.data.data) {
           const cats = categoriesRes.data.data;
           setCategories(cats);
-          
-          // Agar tanlangan kategoriyalar bo'lsa, ularning subkategoriyalarini o'rnatish
-          if (selectedCategories.length > 0) {
-            const selectedCats = cats.filter(cat => selectedCategories.includes(cat._id));
-            const allSubcategories = selectedCats.reduce((acc, cat) => {
-              return [...acc, ...(cat.subcategories || [])];
-            }, []);
-            setSubcategories(allSubcategories);
-          }
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -133,26 +122,46 @@ const ProductFormDialog = ({ open, onClose, product }) => {
     };
 
     fetchData();
-  }, [selectedCategories]); // selectedCategories o'zgarganda qayta yuklash
+  }, []);
 
   useEffect(() => {
-    // Chegirma narxini hisoblash
-    const price = Number(formData.price) || 0;
-    const discount = Number(formData.discount_percent) || 0;
-    const discounted = price - (price * discount / 100);
-    setDiscountPrice(Math.round(discounted));
-  }, [formData.price, formData.discount_percent]);
+    const fetchSubcategories = async () => {
+      try {
+        const selectedCats = categories.filter(cat => selectedCategories.includes(cat._id));
+        const allSubcategories = selectedCats.reduce((acc, cat) => {
+          const subcats = cat.subcategories || [];
+          return [...acc, ...subcats.map(sub => ({
+            ...sub,
+            _id: sub._id || `${cat._id}_${sub.name}`,
+            category_id: cat._id,
+            name: sub.name || sub // Agar sub string bo'lsa
+          }))];
+        }, []);
+        setSubcategories(allSubcategories);
+      } catch (error) {
+        console.error('Subkategoriyalarni olishda xatolik:', error);
+        if (typeof enqueueSnackbar === 'function') {
+          enqueueSnackbar('Subkategoriyalarni olishda xatolik yuz berdi', { 
+            variant: 'error' 
+          });
+        }
+      }
+    };
+
+    if (selectedCategories.length > 0) {
+      fetchSubcategories();
+    } else {
+      setSubcategories([]);
+    }
+  }, [selectedCategories, categories]);
 
   const handleChange = (event) => {
     const { name, value } = event.target;
     let newValue = value;
 
     // Raqamli maydonlar uchun validatsiya
-    if (name === 'price' || name === 'stock' || name === 'discount_percent') {
+    if (name === 'price' || name === 'stock') {
       newValue = value === '' ? '' : Number(value);
-      if (name === 'discount_percent' && (newValue < 0 || newValue > 100)) {
-        return;
-      }
     }
 
     setFormData(prev => ({
@@ -161,18 +170,24 @@ const ProductFormDialog = ({ open, onClose, product }) => {
     }));
   };
 
+  const getAvailableSubcategories = () => {
+    if (!selectedCategories.length) return [];
+    
+    return subcategories.filter(subcat => 
+      selectedCategories.includes(subcat.category)
+    );
+  };
+
+  const handleSubcategoryChange = (event) => {
+    const selectedIds = event.target.value;
+    setSelectedSubcategories(selectedIds);
+    setErrors(prev => ({ ...prev, subcategories: '' }));
+  };
+
   const handleCategoryChange = (event) => {
     const categoryIds = event.target.value;
     setSelectedCategories(categoryIds);
     setSelectedSubcategories([]); // Reset subcategories
-
-    // Tanlangan kategoriyalardan subkategoriyalarni olish
-    const selectedCats = categories.filter(cat => categoryIds.includes(cat._id));
-    const allSubcategories = selectedCats.reduce((acc, cat) => {
-      return [...acc, ...(cat.subcategories || [])];
-    }, []);
-
-    setSubcategories(allSubcategories);
   };
 
   const handleFileSelect = (e) => {
@@ -225,11 +240,6 @@ const ProductFormDialog = ({ open, onClose, product }) => {
       newErrors.stock = 'Mahsulot soni 0 dan kichik bo\'lishi mumkin emas';
     }
 
-    // Discount validation
-    if (formData.discount_percent && (Number(formData.discount_percent) < 0 || Number(formData.discount_percent) > 100)) {
-      newErrors.discount_percent = 'Chegirma foizi 0 dan 100 gacha bo\'lishi kerak';
-    }
-
     // Brand validation
     if (!formData.brand) {
       newErrors.brand = 'Brand tanlanishi shart';
@@ -269,115 +279,171 @@ const ProductFormDialog = ({ open, onClose, product }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
-    if (!validateForm()) {
-      return;
-    }
-    
     setLoading(true);
     
     try {
-      // Ma'lumotlarni tekshirish
-      console.log('Selected Categories:', selectedCategories);
-      console.log('Selected Subcategories:', selectedSubcategories);
-      console.log('Available Subcategories:', subcategories);
+      // Form validatsiyasi
+      const validationErrors = {};
+      if (!formData.name) validationErrors.name = "Nom kiritish majburiy";
+      if (!formData.price) validationErrors.price = "Narx kiritish majburiy";
+      if (!description) validationErrors.description = "Tavsif kiritish majburiy";
+      if (!formData.brand) validationErrors.brand = "Brand tanlash majburiy";
+      if (!selectedCategories.length) validationErrors.categories = "Kamida bitta kategoriya tanlanishi shart";
+      if (!selectedSubcategories.length) validationErrors.subcategories = "Kamida bitta subkategoriya tanlanishi shart";
+      
+      if (Object.keys(validationErrors).length > 0) {
+        setErrors(validationErrors);
+        setLoading(false);
+        return;
+      }
 
+      // FormData yaratish
       const formDataToSend = new FormData();
       
-      // Asosiy ma'lumotlar
+      // Asosiy ma'lumotlarni qo'shish
       formDataToSend.append('name', formData.name);
       formDataToSend.append('description', description);
       formDataToSend.append('price', formData.price);
-      formDataToSend.append('stock', formData.stock);
-      formDataToSend.append('discount_percent', formData.discount_percent || 0);
+      formDataToSend.append('stock', formData.stock || 0);
       formDataToSend.append('brand', formData.brand);
       
-      // Kategoriyalar
+      // Kategoriyalarni qo'shish
       formDataToSend.append('categories', JSON.stringify(selectedCategories));
       
-      // Subkategoriyalar - faqat mavjud subkategoriyalarni yuborish
-      const validSubcategories = selectedSubcategories.filter(subId => 
-        subcategories.some(sub => sub._id === subId)
-      ).map(subId => {
-        const subcat = subcategories.find(sub => sub._id === subId);
+      // Subkategoriyalarni qo'shish
+      const formattedSubcategories = selectedSubcategories.map(subcatId => {
+        const subcat = subcategories.find(s => s._id === subcatId);
+        if (!subcat) return null;
+        
         return {
           _id: subcat._id,
           name: subcat.name,
-          category: subcat.category
+          status: "active"
         };
-      });
-      
-      if (validSubcategories.length === 0) {
-        throw new Error('Kamida bitta subkategoriya tanlash kerak');
+      }).filter(Boolean);
+
+      // Subkategoriyalar majburiy
+      if (formattedSubcategories.length === 0) {
+        setErrors(prev => ({
+          ...prev,
+          subcategories: "Kamida bitta subkategoriya tanlanishi shart"
+        }));
+        setLoading(false);
+        return;
       }
 
-      formDataToSend.append('subcategories', JSON.stringify(validSubcategories));
+      formDataToSend.append('subcategories', JSON.stringify(formattedSubcategories));
 
-      // Yangi rasmlar
+      // Attributelarni qo'shish (bo'sh bo'lsa ham)
+      formDataToSend.append('attributes', JSON.stringify([{
+        name: "Rang",
+        value: "Qizil"
+      }]));
+
+      // Yangi rasmlarni qo'shish
       if (selectedFiles.length > 0) {
-        selectedFiles.forEach(file => {
-          formDataToSend.append('images', file);
+        selectedFiles.forEach((file, index) => {
+          if (index < 5) { // Maksimum 5 ta rasm
+            formDataToSend.append('images', file);
+          }
         });
       }
 
-      // O'chiriladigan rasmlar
+      // O'chirilgan rasmlarni qo'shish
       if (imagesToDelete.length > 0) {
         formDataToSend.append('deleteImages', JSON.stringify(imagesToDelete));
       }
 
-      console.log('Sending data:', {
+      // Chegirmani 0 qilib yuboramiz
+      formDataToSend.append('discount_percent', 0);
+
+      console.log('Yuborilayotgan ma\'lumotlar:', {
         name: formData.name,
         description,
         price: formData.price,
-        stock: formData.stock,
-        discount_percent: formData.discount_percent,
+        stock: formData.stock || 0,
         brand: formData.brand,
         categories: selectedCategories,
-        subcategories: validSubcategories,
-        newImages: selectedFiles.length,
-        deleteImages: imagesToDelete
+        subcategories: formattedSubcategories,
+        images: selectedFiles.length
       });
-      
-      const url = product ? `/api/products/${product._id}` : '/api/products';
+
+      const url = product ? `https://adderapi.mixmall.uz/api/products/${product._id}` : 'https://adderapi.mixmall.uz/api/products';
       const method = product ? 'put' : 'post';
-      
+
       const response = await axios({
         method,
         url,
         data: formDataToSend,
-        withCredentials: true,
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('token')}`,
           'Content-Type': 'multipart/form-data'
-        }
+        },
+        withCredentials: true
       });
 
       console.log('Server response:', response);
 
-      // Server javobini to'liq tekshirish
-      if (response.status === 200 && response.data && response.data.status === 'success') {
-        onClose();
-        window.location.reload();
-      } else {
-        const errorMessage = response.data?.message || 'Xatolik yuz berdi';
-        console.error('Server error:', errorMessage);
-        throw new Error(errorMessage);
+      if (response.status === 200 || response.status === 201) {
+        try {
+          // 1. Snackbar xabarini ko'rsatish
+          if (typeof enqueueSnackbar === 'function') {
+            enqueueSnackbar(product ? 'Mahsulot muvaffaqiyatli yangilandi' : 'Mahsulot muvaffaqiyatli qo\'shildi', {
+              variant: 'success',
+              autoHideDuration: 3000
+            });
+          }
+
+          // 2. Formani tozalash
+          setFormData(initialFormData);
+          setDescription('');
+          setSelectedCategories([]);
+          setSelectedSubcategories([]);
+          setSelectedFiles([]);
+          setPreviewImages([]);
+          setExistingImages([]);
+          setImagesToDelete([]);
+          setErrors({});
+
+          // 3. onSuccess callback ni chaqirish
+          if (typeof onSuccess === 'function') {
+            // Modal yopilishidan oldin callback chaqirish
+            await onSuccess();
+          }
+
+          // 4. Modalni yopish
+          if (typeof onClose === 'function') {
+            onClose();
+          }
+        } catch (error) {
+          console.error('Success handling error:', error);
+          if (enqueueSnackbar) {
+            enqueueSnackbar('Ma\'lumotlarni qayta yuklashda xatolik', {
+              variant: 'error',
+              autoHideDuration: 3000
+            });
+          }
+        }
       }
     } catch (error) {
       console.error('Submit error:', error);
-      if (error.response?.data) {
-        console.error('Error response data:', error.response.data);
+      const errorMessage = error.response?.data?.message || "Xatolik yuz berdi";
+      
+      if (enqueueSnackbar) {
+        enqueueSnackbar(errorMessage, { 
+          variant: 'error',
+          autoHideDuration: 3000
+        });
       }
       
-      let errorMessage = error.message;
-      if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
+      if (error.response?.data?.errors) {
+        setErrors(error.response.data.errors);
+      } else if (errorMessage.includes('subkategoriya')) {
+        setErrors(prev => ({
+          ...prev,
+          subcategories: errorMessage
+        }));
       }
-      
-      setErrors(prev => ({
-        ...prev,
-        submit: errorMessage
-      }));
     } finally {
       setLoading(false);
     }
@@ -439,62 +505,6 @@ const ProductFormDialog = ({ open, onClose, product }) => {
           <Grid item xs={12} sm={6}>
             <TextField
               fullWidth
-              label="Chegirma foizi"
-              name="discount_percent"
-              type="number"
-              value={formData.discount_percent || ''}
-              onChange={handleChange}
-              error={!!errors.discount_percent}
-              helperText={errors.discount_percent}
-              InputProps={{
-                endAdornment: <InputAdornment position="end">%</InputAdornment>
-              }}
-            />
-          </Grid>
-
-          {formData.discount_percent > 0 && (
-            <Grid item xs={12} sm={6}>
-              <TextField
-                fullWidth
-                label="Chegirma narxi"
-                name="discount_price"
-                type="number"
-                value={discountPrice || ''}
-                onChange={(e) => {
-                  const newDiscountPrice = Number(e.target.value);
-                  if (newDiscountPrice <= 0) return;
-                  
-                  // Yangi chegirma foizini hisoblash
-                  const originalPrice = Number(formData.price);
-                  if (originalPrice <= 0) return;
-                  
-                  const newDiscountPercent = Math.round(((originalPrice - newDiscountPrice) / originalPrice) * 100);
-                  if (newDiscountPercent < 0 || newDiscountPercent > 100) return;
-                  
-                  setFormData(prev => ({
-                    ...prev,
-                    discount_percent: newDiscountPercent
-                  }));
-                  setDiscountPrice(newDiscountPrice);
-                }}
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">so'm</InputAdornment>,
-                  startAdornment: formData.price ? (
-                    <InputAdornment position="start">
-                      <FormHelperText 
-                        sx={{ textDecoration: 'line-through' }}
-                      >
-                        {Number(formData.price).toLocaleString()}
-                      </FormHelperText>
-                    </InputAdornment>
-                  ) : null
-                }}
-              />
-            </Grid>
-          )}
-          <Grid item xs={12} sm={6}>
-            <TextField
-              fullWidth
               label="Ombordagi soni"
               name="stock"
               type="number"
@@ -506,29 +516,6 @@ const ProductFormDialog = ({ open, onClose, product }) => {
           </Grid>
 
           <Grid item xs={12}>
-            <ReactQuill
-              theme="snow"
-              value={description || ''}
-              onChange={(value) => setDescription(value)}
-              placeholder="Mahsulot tavsifi..."
-              modules={{
-                toolbar: [
-                  [{ header: [1, 2, false] }],
-                  ['bold', 'italic', 'underline', 'strike'],
-                  [{ list: 'ordered' }, { list: 'bullet' }],
-                  ['clean']
-                ]
-              }}
-              style={{ height: '200px', marginBottom: '50px' }}
-            />
-            {errors.description && (
-              <FormHelperText error={errors.description ? "true" : undefined}>
-                {errors.description}
-              </FormHelperText>
-            )}
-          </Grid>
-
-          <Grid item xs={12} md={6}>
             <FormControl fullWidth error={!!errors.brand}>
               <InputLabel>Brand</InputLabel>
               <Select
@@ -561,14 +548,37 @@ const ProductFormDialog = ({ open, onClose, product }) => {
             </FormControl>
           </Grid>
 
+          <Grid item xs={12}>
+            <ReactQuill
+              theme="snow"
+              value={description || ''}
+              onChange={(value) => setDescription(value)}
+              placeholder="Mahsulot tavsifi..."
+              modules={{
+                toolbar: [
+                  [{ header: [1, 2, false] }],
+                  ['bold', 'italic', 'underline', 'strike'],
+                  [{ list: 'ordered' }, { list: 'bullet' }],
+                  ['clean']
+                ]
+              }}
+              style={{ height: '200px', marginBottom: '50px' }}
+            />
+            {errors.description && (
+              <FormHelperText error={Boolean(errors.description)}>
+                {errors.description}
+              </FormHelperText>
+            )}
+          </Grid>
+
           <Grid item xs={12} md={6}>
-            <FormControl fullWidth error={!!errors.categories}>
+            <FormControl fullWidth error={Boolean(errors.categories)}>
               <InputLabel>Kategoriyalar</InputLabel>
               <Select
                 multiple
                 value={selectedCategories}
                 onChange={handleCategoryChange}
-                label="Kategoriyalar"
+                input={<OutlinedInput label="Kategoriyalar" />}
                 renderValue={(selected) => (
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                     {selected.map((value) => (
@@ -605,50 +615,49 @@ const ProductFormDialog = ({ open, onClose, product }) => {
             </FormControl>
           </Grid>
 
-          {subcategories.length > 0 && (
-            <Grid item xs={12} md={6}>
-              <FormControl fullWidth error={!!errors.subcategories}>
-                <InputLabel>Subkategoriyalar</InputLabel>
-                <Select
-                  multiple
-                  value={selectedSubcategories}
-                  onChange={(e) => setSelectedSubcategories(e.target.value)}
-                  label="Subkategoriyalar"
-                  renderValue={(selected) => (
-                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                      {selected.map((value) => {
-                        const subcat = subcategories.find(sub => sub._id === value);
-                        return (
-                          <Chip
-                            key={value}
-                            label={subcat?.name || value}
-                            size="small"
-                          />
-                        );
-                      })}
-                    </Box>
-                  )}
-                  disabled={selectedCategories.length === 0}
-                >
-                  {subcategories.map((subcategory) => (
-                    <MenuItem key={subcategory._id} value={subcategory._id}>
-                      {subcategory.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-                {errors.subcategories && (
-                  <FormHelperText error>
-                    {errors.subcategories}
-                  </FormHelperText>
+          <Grid item xs={12} md={6}>
+            <FormControl fullWidth error={!!errors.subcategories}>
+              <InputLabel>Subkategoriyalar</InputLabel>
+              <Select
+                multiple
+                value={selectedSubcategories}
+                onChange={handleSubcategoryChange}
+                label="Subkategoriyalar"
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selected.map((value) => {
+                      const subcat = subcategories.find(sub => sub._id === value);
+                      return (
+                        <Chip
+                          key={value}
+                          label={subcat?.name || value}
+                          size="small"
+                        />
+                      );
+                    })}
+                  </Box>
                 )}
-                {selectedCategories.length === 0 && (
-                  <FormHelperText>
-                    Avval kategoriya tanlang
-                  </FormHelperText>
-                )}
-              </FormControl>
-            </Grid>
-          )}
+                disabled={selectedCategories.length === 0}
+              >
+                {subcategories.map((subcategory) => (
+                  <MenuItem key={subcategory._id} value={subcategory._id}>
+                    {subcategory.name}
+                  </MenuItem>
+                ))}
+              </Select>
+              {errors.subcategories && (
+                <FormHelperText error>
+                  {errors.subcategories}
+                </FormHelperText>
+              )}
+              {selectedCategories.length === 0 && (
+                <FormHelperText>
+                  Avval kategoriya tanlang
+                </FormHelperText>
+              )}
+            </FormControl>
+          </Grid>
+
           <Grid item xs={12}>
             {errors.submit && (
               <FormHelperText error={errors.submit ? "true" : undefined}>

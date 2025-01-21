@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSnackbar } from 'notistack';
-import { socket } from '../socket';
+import socket from '../socket';
 import {
   Box,
   Button,
@@ -63,20 +63,18 @@ export default function Products() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [productToDelete, setProductToDelete] = useState(null);
 
-  // Mahsulotlarni yuklash
-  const fetchProducts = async () => {
+  // Fetch products
+  const fetchProducts = async (resetPage = false) => {
     try {
       setLoading(true);
 
-      // Query parametrlarini tayyorlash
       const params = new URLSearchParams({
-        page: pagination.page,
+        page: resetPage ? 1 : pagination.page,
         limit: pagination.limit,
         sortBy: filters.sortBy,
         sortOrder: filters.sortOrder
       });
 
-      // Filtrlash parametrlarini qo'shish
       if (filters.category) params.append('category', filters.category);
       if (filters.subcategory) params.append('subcategory', filters.subcategory);
       if (filters.brand) params.append('brand', filters.brand);
@@ -85,15 +83,13 @@ export default function Products() {
       if (filters.inStock) params.append('inStock', filters.inStock);
       if (searchTerm) params.append('search', searchTerm);
 
-      // API so'rovi
       const response = await api.get(`/products?${params}`);
-
-      // Ma'lumotlarni saqlash
-      setProducts(response.data.products);
-      setPagination({
-        ...pagination,
-        total: response.data.total
-      });
+      setProducts(response.data.products || []);
+      setPagination(prev => ({
+        ...prev,
+        total: response.data.total || 0,
+        page: resetPage ? 1 : prev.page
+      }));
     } catch (error) {
       console.error('Error fetching products:', error);
       enqueueSnackbar(
@@ -105,63 +101,32 @@ export default function Products() {
     }
   };
 
-  // Filtrlar o'zgarganda mahsulotlarni qayta yuklash
   useEffect(() => {
     fetchProducts();
-  }, [pagination.page, filters, searchTerm]);
+  }, [pagination.page, pagination.limit, filters, searchTerm]);
 
-  // Socket eventlarni tinglash
-  useEffect(() => {
-    // Socket eventlarni tinglash
-    socket.on('product:created', (data) => {
-      console.log('Yangi mahsulot qo\'shildi:', data);
-      fetchProducts();
-    });
-
-    socket.on('product:updated', (data) => {
-      console.log('Mahsulot yangilandi:', data);
-      fetchProducts();
-    });
-
-    socket.on('product:deleted', (data) => {
-      console.log('Mahsulot o\'chirildi:', data);
-      setProducts(prevProducts => 
-        prevProducts.filter(product => product._id !== data._id)
-      );
-      enqueueSnackbar(`${data.name} mahsuloti o'chirildi`, { 
-        variant: 'info'
-      });
-    });
-
-    socket.on('product:stock', (data) => {
-      console.log('Mahsulot skladi yangilandi:', data);
-      setProducts(prevProducts => 
-        prevProducts.map(product => 
-          product._id === data._id 
-            ? { ...product, stock: data.stock }
-            : product
-        )
-      );
-    });
-
-    // Cleanup
-    return () => {
-      socket.off('product:created');
-      socket.off('product:updated');
-      socket.off('product:deleted');
-      socket.off('product:stock');
-    };
-  }, []);
-
-  // Dialog handlers
-  const handleOpenViewDialog = (product) => {
-    setSelectedProduct(product);
-    setViewDialogOpen(true);
+  // Handlers
+  const handleProductSuccess = async () => {
+    await fetchProducts(true);
+    setFormDialogOpen(false);
+    setSelectedProduct(null);
+    enqueueSnackbar('Muvaffaqiyatli bajarildi', { variant: 'success' });
   };
 
-  const handleCloseViewDialog = () => {
-    setSelectedProduct(null);
-    setViewDialogOpen(false);
+  const handleDelete = async () => {
+    try {
+      await api.delete(`/products/${productToDelete._id}`);
+      enqueueSnackbar('Mahsulot muvaffaqiyatli o\'chirildi', { variant: 'success' });
+      setDeleteDialogOpen(false);
+      setProductToDelete(null);
+      await fetchProducts();
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      enqueueSnackbar(
+        error.response?.data?.message || 'Mahsulotni o\'chirishda xatolik',
+        { variant: 'error' }
+      );
+    }
   };
 
   const handleOpenFormDialog = (product = null) => {
@@ -169,76 +134,17 @@ export default function Products() {
     setFormDialogOpen(true);
   };
 
-  const handleCloseFormDialog = () => {
-    setSelectedProduct(null);
-    setFormDialogOpen(false);
-  };
-
   const handleOpenDeleteDialog = (product) => {
     setProductToDelete(product);
     setDeleteDialogOpen(true);
   };
 
-  const handleCloseDeleteDialog = () => {
-    setProductToDelete(null);
-    setDeleteDialogOpen(false);
+  const handleOpenViewDialog = (product) => {
+    setSelectedProduct(product);
+    setViewDialogOpen(true);
   };
 
-  // Mahsulotni o'chirish
-  const handleDelete = async () => {
-    try {
-      setLoading(true);
-
-      if (!productToDelete?._id) {
-        throw new Error('Mahsulot ID si topilmadi');
-      }
-
-      // O'chirish so'rovi
-      const response = await api.delete(`/products/${productToDelete._id}`);
-
-      // Debug log
-      console.log('Delete response:', response);
-
-      // Muvaffaqiyatli
-      handleCloseDeleteDialog();
-      enqueueSnackbar('Mahsulot muvaffaqiyatli o\'chirildi', { 
-        variant: 'success' 
-      });
-
-      // Local state dan o'chirish
-      setProducts(prevProducts => 
-        prevProducts.filter(product => product._id !== productToDelete._id)
-      );
-
-    } catch (error) {
-      console.error('Error deleting product:', error);
-      enqueueSnackbar(
-        error.response?.data?.message || error.message || 'Mahsulotni o\'chirishda xatolik',
-        { variant: 'error' }
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Filter handlers
-  const handleFilterChange = (event) => {
-    const { name, value, checked } = event.target;
-    setFilters(prev => ({
-      ...prev,
-      [name]: name === 'inStock' ? checked : value
-    }));
-    setPagination(prev => ({ ...prev, page: 1 }));
-  };
-
-  // Search handler
-  const handleSearch = (event) => {
-    setSearchTerm(event.target.value);
-    setPagination(prev => ({ ...prev, page: 1 }));
-  };
-
-  // Pagination handler
-  const handlePageChange = (event, newPage) => {
+  const handlePageChange = (newPage) => {
     setPagination(prev => ({ ...prev, page: newPage }));
   };
 
@@ -259,7 +165,7 @@ export default function Products() {
           size="small"
           placeholder="Qidirish..."
           value={searchTerm}
-          onChange={handleSearch}
+          onChange={(e) => setSearchTerm(e.target.value)}
           InputProps={{
             startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
           }}
@@ -274,7 +180,7 @@ export default function Products() {
           <Select
             name="category"
             value={filters.category}
-            onChange={handleFilterChange}
+            onChange={(e) => setFilters(prev => ({ ...prev, category: e.target.value }))}
             label="Kategoriya"
           >
             <MenuItem value="">Barchasi</MenuItem>
@@ -288,7 +194,7 @@ export default function Products() {
           <Select
             name="brand"
             value={filters.brand}
-            onChange={handleFilterChange}
+            onChange={(e) => setFilters(prev => ({ ...prev, brand: e.target.value }))}
             label="Brend"
           >
             <MenuItem value="">Barchasi</MenuItem>
@@ -303,7 +209,7 @@ export default function Products() {
           label="Min narx"
           type="number"
           value={filters.minPrice}
-          onChange={handleFilterChange}
+          onChange={(e) => setFilters(prev => ({ ...prev, minPrice: e.target.value }))}
           sx={{ width: 150 }}
         />
         <TextField
@@ -312,7 +218,7 @@ export default function Products() {
           label="Max narx"
           type="number"
           value={filters.maxPrice}
-          onChange={handleFilterChange}
+          onChange={(e) => setFilters(prev => ({ ...prev, maxPrice: e.target.value }))}
           sx={{ width: 150 }}
         />
 
@@ -322,7 +228,7 @@ export default function Products() {
             <Checkbox
               name="inStock"
               checked={filters.inStock}
-              onChange={handleFilterChange}
+              onChange={(e) => setFilters(prev => ({ ...prev, inStock: e.target.checked }))}
             />
           }
           label="Faqat mavjud"
@@ -334,7 +240,7 @@ export default function Products() {
           <Select
             name="sortBy"
             value={filters.sortBy}
-            onChange={handleFilterChange}
+            onChange={(e) => setFilters(prev => ({ ...prev, sortBy: e.target.value }))}
             label="Saralash"
           >
             <MenuItem value="createdAt">Qo'shilgan vaqti</MenuItem>
@@ -349,7 +255,7 @@ export default function Products() {
           <Select
             name="sortOrder"
             value={filters.sortOrder}
-            onChange={handleFilterChange}
+            onChange={(e) => setFilters(prev => ({ ...prev, sortOrder: e.target.value }))}
             label="Tartib"
           >
             <MenuItem value="desc">Kamayish</MenuItem>
@@ -359,69 +265,55 @@ export default function Products() {
       </Box>
 
       {/* Product list */}
-      <ProductList
-        products={products}
-        loading={loading}
-        onView={handleOpenViewDialog}
-        onEdit={handleOpenFormDialog}
-        onDelete={handleOpenDeleteDialog}
-        pagination={{
-          page: pagination.page,
-          total: pagination.total,
-          limit: pagination.limit,
-          onChange: handlePageChange
-        }}
-      />
+      <Box sx={{ width: '100%', p: 3 }}>
+        <ProductList 
+          products={products}
+          loading={loading}
+          pagination={pagination}
+          onPageChange={handlePageChange}
+          onLimitChange={(newLimit) => setPagination(prev => ({ ...prev, limit: newLimit, page: 1 }))}
+          onProductDelete={handleOpenDeleteDialog}
+          onProductSuccess={handleProductSuccess}
+          enqueueSnackbar={enqueueSnackbar}
+        />
+      </Box>
 
       {/* View dialog */}
       <ProductViewDialog
         open={viewDialogOpen}
+        onClose={() => setViewDialogOpen(false)}
         product={selectedProduct}
-        onClose={handleCloseViewDialog}
-        onEdit={() => {
-          handleCloseViewDialog();
-          handleOpenFormDialog(selectedProduct);
-        }}
       />
 
       {/* Form dialog */}
       <ProductFormDialog
         open={formDialogOpen}
-        product={selectedProduct}
-        onClose={handleCloseFormDialog}
-        onSuccess={() => {
-          handleCloseFormDialog();
-          fetchProducts();
+        onClose={() => {
+          setFormDialogOpen(false);
+          setSelectedProduct(null);
         }}
+        product={selectedProduct}
+        onSuccess={handleProductSuccess}
       />
 
       {/* Delete dialog */}
       <Dialog
         open={deleteDialogOpen}
-        onClose={handleCloseDeleteDialog}
+        onClose={() => setDeleteDialogOpen(false)}
       >
-        <DialogTitle>
-          Mahsulotni o'chirish
-        </DialogTitle>
+        <DialogTitle>Mahsulotni o'chirish</DialogTitle>
         <DialogContent>
           <DialogContentText>
-            Haqiqatan ham "{productToDelete?.name}" mahsulotini o'chirmoqchimisiz?
-            <br />
-            Bu amalni ortga qaytarib bo'lmaydi.
+            {productToDelete?.name} mahsulotini o'chirishni tasdiqlaysizmi?
           </DialogContentText>
         </DialogContent>
         <DialogActions>
-          <Button onClick={handleCloseDeleteDialog}>
+          <Button onClick={() => setDeleteDialogOpen(false)}>
             Bekor qilish
           </Button>
-          <LoadingButton
-            onClick={handleDelete}
-            loading={loading}
-            color="error"
-            variant="contained"
-          >
+          <Button onClick={handleDelete} color="error" variant="contained">
             O'chirish
-          </LoadingButton>
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>
