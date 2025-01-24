@@ -1,15 +1,12 @@
-import React from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 
-const PrivateRoute = ({ children }) => {
+export default function PrivateRoute({ children }) {
   const token = localStorage.getItem('token');
+  const location = useLocation();
 
   if (!token) {
-    // Redirect to login if not authenticated
-    return <Navigate to="/login" replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
   return children;
-};
-
-export default PrivateRoute;
+}

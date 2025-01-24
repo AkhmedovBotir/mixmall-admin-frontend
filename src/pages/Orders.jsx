@@ -1,227 +1,322 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Card,
-  Table,
-  Tag,
-  Space,
-  message,
+  Container,
+  Paper,
   Typography,
-  Button,
-  Modal,
-  Descriptions,
-  Spin,
-} from 'antd';
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  IconButton,
+  Stack,
+  Chip,
+  Box,
+  CircularProgress,
+  Alert,
+  Pagination,
+  Snackbar,
+} from '@mui/material';
+import {
+  Visibility as ViewIcon,
+} from '@mui/icons-material';
 import axios from 'axios';
-import { ShoppingOutlined, EyeOutlined } from '@ant-design/icons';
-
-const { Text } = Typography;
+import OrderViewDialog from '../components/OrderViewDialog';
+import OrderCourierDialog from '../components/OrderCourierDialog';
+import { format } from 'date-fns';
 
 const Orders = () => {
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedOrder, setSelectedOrder] = useState(null);
-  const [modalVisible, setModalVisible] = useState(false);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [courierDialogOpen, setCourierDialogOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
-  useEffect(() => {
-    fetchOrders();
-  }, []);
+  // Snackbar yopish
+  const handleCloseSnackbar = () => {
+    setSnackbar({ ...snackbar, open: false });
+  };
 
-  const fetchOrders = async () => {
+  // Buyurtmalarni yuklash
+  const fetchOrders = async (pageNum = 1) => {
     try {
-      const response = await axios.get('http://localhost:3000/api/orders');
-      console.log('Orders response:', response.data);
-      if (response.data?.success && response.data?.data) {
-        setOrders(response.data.data);
+      setLoading(true);
+      const response = await axios.get(`https://adderapi.mixmall.uz/api/orders?page=${pageNum}&limit=10`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+
+      if (response.data.status === 'success') {
+        setOrders(response.data.data.orders);
+        setTotalPages(response.data.data.pagination.pages);
+      } else {
+        throw new Error(response.data.message || 'Xatolik yuz berdi');
       }
-    } catch (error) {
-      console.error('Error fetching orders:', error);
-      message.error('Buyurtmalarni yuklashda xatolik');
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const getStatusTag = (status) => {
-    const statusConfig = {
-      pending: { color: 'gold', text: 'Kutilmoqda' },
-      processing: { color: 'blue', text: 'Jarayonda' },
-      shipped: { color: 'cyan', text: 'Yetkazilmoqda' },
-      delivered: { color: 'green', text: 'Yetkazildi' },
-      cancelled: { color: 'red', text: 'Bekor qilingan' }
-    };
+  useEffect(() => {
+    fetchOrders(page);
+  }, [page]);
 
-    const config = statusConfig[status] || { color: 'default', text: status };
-    return <Tag color={config.color}>{config.text}</Tag>;
+  // Buyurtma holatini yangilash
+  const handleUpdateStatus = async (orderId, newStatus) => {
+    try {
+      const response = await axios.put(
+        `https://adderapi.mixmall.uz/api/orders/${orderId}/status`,
+        { status: newStatus },
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      // Modal oynani yopish
+      setViewDialogOpen(false);
+      
+      // Muvaffaqiyatli xabar
+      setSnackbar({
+        open: true,
+        message: response.data.message || 'Buyurtma statusi yangilandi',
+        severity: 'success'
+      });
+      
+      // Buyurtmalar ro'yxatini yangilash
+      fetchOrders(page);
+
+    } catch (error) {
+      console.error('Error updating order status:', error);
+      // Xatolik xabari
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.message || 'Buyurtma holatini yangilashda xatolik yuz berdi',
+        severity: 'error'
+      });
+    }
   };
 
-  const columns = [
-    {
-      title: 'Buyurtma ID',
-      dataIndex: 'orderId',
-      key: 'orderId',
-      render: (id) => <Text code>{id}</Text>,
-    },
-    {
-      title: 'Sana',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      render: (date) => new Date(date).toLocaleString('uz-UZ'),
-    },
-    {
-      title: 'Mahsulotlar',
-      dataIndex: 'items',
-      key: 'items',
-      render: (items) => (
-        <span>{items.reduce((sum, item) => sum + item.quantity, 0)} ta mahsulot</span>
-      ),
-    },
-    {
-      title: 'Umumiy summa',
-      dataIndex: 'totalPrice',
-      key: 'totalPrice',
-      render: (amount) => (
-        <Text strong>{amount?.toLocaleString()} so'm</Text>
-      ),
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status) => getStatusTag(status),
-    },
-    {
-      title: 'Amallar',
-      key: 'actions',
-      render: (_, record) => (
-        <Button
-          type="primary"
-          icon={<EyeOutlined />}
-          onClick={() => {
-            setSelectedOrder(record);
-            setModalVisible(true);
-          }}
-        >
-          Batafsil
-        </Button>
-      ),
-    },
-  ];
+  // Buyurtmaga kuryer tayinlash
+  const handleAssignCourier = async (orderId, courier) => {
+    try {
+      const response = await axios.put(
+        `https://adderapi.mixmall.uz/api/orders/${orderId}/courier`,
+        { courierId: courier._id },
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-  if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '50px' }}>
-        <Spin size="large" />
-      </div>
-    );
-  }
+      // Muvaffaqiyatli bo'lsa
+      fetchOrders(page);
+      setViewDialogOpen(false);
+      
+    } catch (error) {
+      console.error('Error assigning courier:', error);
+      if (error.response?.data?.message) {
+        setError(error.response.data.message);
+      } else {
+        setError('Kuryer tayinlashda xatolik yuz berdi');
+      }
+    }
+  };
+
+  // Kuryer tayinlash dialogini ochish
+  const handleOpenCourierDialog = (order) => {
+    setSelectedOrder(order);
+    setCourierDialogOpen(true);
+  };
+
+  // Buyurtma ma'lumotlarini ko'rish
+  const handleViewOrder = (order) => {
+    setSelectedOrder(order);
+    setViewDialogOpen(true);
+  };
 
   return (
-    <div style={{ padding: '24px' }}>
-      <Card
-        title={
-          <Space>
-            <ShoppingOutlined />
-            <span>Mening buyurtmalarim</span>
-          </Space>
-        }
-      >
-        <Table
-          dataSource={orders}
-          columns={columns}
-          rowKey="orderId"
-          pagination={{
-            pageSize: 10,
-            showTotal: (total) => `Jami ${total} ta buyurtma`,
-          }}
-        />
-      </Card>
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      <Paper sx={{ p: 3, mb: 3 }}>
+        <Typography variant="h5" gutterBottom sx={{ mb: 3 }}>
+          Buyurtmalar
+        </Typography>
 
-      <Modal
-        title="Buyurtma tafsilotlari"
-        open={modalVisible}
-        onCancel={() => {
-          setModalVisible(false);
-          setSelectedOrder(null);
-        }}
-        footer={null}
-        width={800}
-      >
-        {selectedOrder && (
+        {loading ? (
+          <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+            <CircularProgress />
+          </Box>
+        ) : error ? (
+          <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>
+        ) : (
           <>
-            <Descriptions bordered column={1}>
-              <Descriptions.Item label="Buyurtma ID">
-                {selectedOrder.orderId}
-              </Descriptions.Item>
-              <Descriptions.Item label="Status">
-                {getStatusTag(selectedOrder.status)}
-              </Descriptions.Item>
-              <Descriptions.Item label="Sana">
-                {new Date(selectedOrder.createdAt).toLocaleString('uz-UZ')}
-              </Descriptions.Item>
-              <Descriptions.Item label="Yetkazib berish manzili">
-                <Space direction="vertical">
-                  <div><strong>Manzil:</strong> {selectedOrder.address.address}</div>
-                  <div><strong>Xonadon:</strong> {selectedOrder.address.apartment}</div>
-                  <div><strong>Podez:</strong> {selectedOrder.address.entrance}</div>
-                  <div><strong>Qavat:</strong> {selectedOrder.address.floor}</div>
-                  {selectedOrder.address.domofonCode && (
-                    <div><strong>Domofon:</strong> {selectedOrder.address.domofonCode}</div>
-                  )}
-                  {selectedOrder.address.courierComment && (
-                    <div><strong>Kuryer uchun izoh:</strong> {selectedOrder.address.courierComment}</div>
-                  )}
-                </Space>
-              </Descriptions.Item>
-            </Descriptions>
+            <TableContainer>
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Buyurtma ID</TableCell>
+                    <TableCell>Sana</TableCell>
+                    <TableCell>Mijoz</TableCell>
+                    <TableCell>Kurier</TableCell>
+                    <TableCell>Holat</TableCell>
+                    <TableCell align="right">Summa</TableCell>
+                    <TableCell align="center">Amallar</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {orders.map((order) => (
+                    <TableRow key={order._id}>
+                      <TableCell>{order.orderId}</TableCell>
+                      <TableCell>
+                        {format(new Date(order.createdAt), 'dd/MM/yyyy HH:mm')}
+                      </TableCell>
+                      <TableCell>
+                        <Stack spacing={0.5}>
+                          <Typography variant="body2">
+                            {order.user.firstName} {order.user.lastName}
+                          </Typography>
+                          {order.user.phoneNumber && (
+                            <Typography variant="caption" color="textSecondary">
+                              {order.user.phoneNumber}
+                            </Typography>
+                          )}
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        {order.courier ? (
+                          <Stack spacing={0.5}>
+                            <Typography variant="body2">
+                              {order.courier.firstName} {order.courier.lastName}
+                            </Typography>
+                          </Stack>
+                        ) : (
+                          <Typography variant="body2" color="textSecondary">
+                            Tayinlanmagan
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <Chip
+                          label={
+                            {
+                              pending: 'Kutilmoqda',
+                              processing: 'Jarayonda',
+                              shipped: 'Yetkazilmoqda',
+                              delivered: 'Yetkazildi',
+                              cancelled: 'Bekor qilindi',
+                            }[order.status]
+                          }
+                          color={
+                            {
+                              pending: 'warning',
+                              processing: 'info',
+                              shipped: 'info',
+                              delivered: 'success',
+                              cancelled: 'error',
+                            }[order.status]
+                          }
+                          size="small"
+                        />
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2">
+                          {order.totalPrice.toLocaleString()} UZS
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <IconButton
+                          size="small"
+                          onClick={() => {
+                            setSelectedOrder(order);
+                            setViewDialogOpen(true);
+                          }}
+                        >
+                          <ViewIcon />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
 
-            <div style={{ marginTop: 24 }}>
-              <h4>Buyurtma tarkibi:</h4>
-              <Table
-                dataSource={selectedOrder.items}
-                pagination={false}
-                rowKey={(record) => record._id}
-                columns={[
-                  {
-                    title: 'Mahsulot',
-                    dataIndex: ['product', 'name'],
-                    key: 'name',
-                  },
-                  {
-                    title: 'Narx',
-                    dataIndex: ['product', 'price'],
-                    key: 'price',
-                    render: (price) => `${price.toLocaleString()} so'm`,
-                  },
-                  {
-                    title: 'Soni',
-                    dataIndex: 'quantity',
-                    key: 'quantity',
-                  },
-                  {
-                    title: 'Jami',
-                    key: 'total',
-                    render: (_, record) => 
-                      `${(record.quantity * record.product.price).toLocaleString()} so'm`,
-                  },
-                ]}
-                summary={() => (
-                  <Table.Summary.Row>
-                    <Table.Summary.Cell colSpan={3}>
-                      <Text strong>Umumiy summa:</Text>
-                    </Table.Summary.Cell>
-                    <Table.Summary.Cell>
-                      <Text strong>
-                        {selectedOrder.totalPrice.toLocaleString()} so'm
-                      </Text>
-                    </Table.Summary.Cell>
-                  </Table.Summary.Row>
-                )}
+            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+              <Pagination
+                count={totalPages}
+                page={page}
+                onChange={(e, value) => setPage(value)}
+                color="primary"
+                showFirstButton
+                showLastButton
               />
-            </div>
+            </Box>
           </>
         )}
-      </Modal>
-    </div>
+      </Paper>
+
+      {/* Buyurtma ko'rish dialogi */}
+      <OrderViewDialog
+        order={selectedOrder}
+        open={viewDialogOpen}
+        onClose={() => setViewDialogOpen(false)}
+        onUpdateStatus={handleUpdateStatus}
+        onAssignCourier={handleAssignCourier}
+        getStatusText={(status) => ({
+          pending: 'Kutilmoqda',
+          processing: 'Jarayonda',
+          shipped: 'Yetkazilmoqda',
+          delivered: 'Yetkazildi',
+          cancelled: 'Bekor qilindi',
+        }[status])}
+        getStatusColor={(status) => ({
+          pending: '#ed6c02',
+          processing: '#0288d1',
+          shipped: '#0288d1',
+          delivered: '#2e7d32',
+          cancelled: '#d32f2f',
+        }[status])}
+      />
+
+      {/* Kuryer tayinlash dialogi */}
+      <OrderCourierDialog
+        open={courierDialogOpen}
+        onClose={() => setCourierDialogOpen(false)}
+        order={selectedOrder}
+        onSuccess={() => {
+          setCourierDialogOpen(false);
+          fetchOrders(page);
+        }}
+      />
+
+      {/* Snackbar */}
+      <Snackbar 
+        open={snackbar.open} 
+        autoHideDuration={6000} 
+        onClose={handleCloseSnackbar}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+      >
+        <Alert 
+          onClose={handleCloseSnackbar} 
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Container>
   );
 };
 
